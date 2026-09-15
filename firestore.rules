@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Students: the kiosk needs to read names to power the search bar,
+    // and Firestore rules can't hide individual fields, so treat this as
+    // "visible to anyone with the kiosk link" (fine for a locked iPad in
+    // your studio). Only a signed-in tutor can add/edit/remove students.
+    match /students/{studentId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Sessions: the kiosk creates a sign-in record with no login needed.
+    // Only the tutor (signed in) can read the list, edit, or delete one.
+    match /sessions/{sessionId} {
+      allow create: if true;
+      allow read, update, delete: if request.auth != null;
+    }
+
+    // Bookings: the kiosk needs to read today's slots to offer them at
+    // sign-in, and can create a one-off (non-repeating, single-day) booking
+    // when a student signs in with no scheduled session, so it shows up on
+    // the calendar too. Only the tutor can edit/delete, or create anything
+    // recurring or multi-day.
+    match /bookings/{bookingId} {
+      allow read: if true;
+      allow create: if request.auth != null || (
+        request.resource.data.repeat == 'none' &&
+        request.resource.data.startDate == request.resource.data.endDate
+      );
+      allow update, delete: if request.auth != null;
+    }
+
+    // Invoices and settings: tutor only.
+    match /invoices/{invoiceId} {
+      allow read, write: if request.auth != null;
+    }
+    match /settings/{docId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
