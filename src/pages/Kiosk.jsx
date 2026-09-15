@@ -22,12 +22,15 @@ export default function Kiosk() {
     return () => { u1(); u2() }
   }, [])
 
-  const results = useMemo(() => {
-    if (!query.trim()) return []
+  // All students, browsable as tiles; typing narrows the same list rather
+  // than switching to a separate results view.
+  const visibleStudents = useMemo(() => {
+    const sorted = [...students].sort((a, b) =>
+      `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`)
+    )
+    if (!query.trim()) return sorted
     const q = query.trim().toLowerCase()
-    return students.filter((s) =>
-      `${s.firstName} ${s.lastName}`.toLowerCase().includes(q)
-    ).slice(0, 8)
+    return sorted.filter((s) => `${s.firstName} ${s.lastName}`.toLowerCase().includes(q))
   }, [query, students])
 
   // Bookings that occur today and include the selected student
@@ -120,20 +123,20 @@ export default function Kiosk() {
               <span className="search-icon">🔍</span>
               <input
                 autoFocus
-                placeholder="Type your first or last name..."
+                placeholder="Search your name, or scroll below..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
             </div>
-            <div className="kiosk-result-list">
-              {results.map((s) => (
-                <button key={s.id} className="kiosk-result" onClick={() => setSelected(s)}>
-                  <strong>{s.firstName} {s.lastName}</strong>
-                  <span className="muted">Tap to sign in →</span>
+            <div className="kiosk-grid">
+              {visibleStudents.map((s) => (
+                <button key={s.id} className="kiosk-cube" onClick={() => setSelected(s)}>
+                  <span className="kiosk-cube-initials">{s.firstName?.[0]}{s.lastName?.[0]}</span>
+                  <span className="kiosk-cube-name">{s.firstName} {s.lastName}</span>
                 </button>
               ))}
-              {query.trim() && results.length === 0 && (
-                <p className="muted">No student found. Ask your tutor to check your registration.</p>
+              {visibleStudents.length === 0 && (
+                <p className="muted kiosk-grid-empty">No student found. Ask your tutor to check your registration.</p>
               )}
             </div>
           </>
