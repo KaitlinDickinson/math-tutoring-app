@@ -1,5 +1,5 @@
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, setDoc
+  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, setDoc, writeBatch
 } from 'firebase/firestore'
 import { db } from '../firebase'
 
@@ -17,10 +17,17 @@ export const listenStudents = liveCollection('students', 'lastName')
 export const addStudent = (data) => addDoc(collection(db, 'students'), data)
 export const updateStudent = (id, data) => updateDoc(doc(db, 'students', id), data)
 export const deleteStudent = (id) => deleteDoc(doc(db, 'students', id))
+// updates: [{ id, data }] — applied together, used for the yearly grade rollover.
+export const bulkUpdateStudents = (updates) => {
+  const batch = writeBatch(db)
+  updates.forEach(({ id, data }) => batch.update(doc(db, 'students', id), data))
+  return batch.commit()
+}
 
 // ---------- Sessions (kiosk sign-ins) ----------
 export const listenSessions = liveCollection('sessions', 'date')
 export const addSession = (data) => addDoc(collection(db, 'sessions'), data)
+export const updateSession = (id, data) => updateDoc(doc(db, 'sessions', id), data)
 export const deleteSession = (id) => deleteDoc(doc(db, 'sessions', id))
 
 // ---------- Bookings (calendar) ----------

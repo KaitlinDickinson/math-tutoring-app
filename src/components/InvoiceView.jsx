@@ -12,7 +12,7 @@ export default function InvoiceView({ invoice, settings, onClose, onMarkPaid }) 
           <h3>Invoice — {invoice.studentName}</h3>
           <button className="modal-close" onClick={onClose}>&times;</button>
         </div>
-        <div className="modal-body" id="invoice-print-area">
+        <div className="modal-body print-area">
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
               <h2 style={{ marginBottom: 2 }}>Invoice</h2>

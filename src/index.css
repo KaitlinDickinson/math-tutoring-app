@@ -240,6 +240,8 @@ table.ledger th {
   border-bottom: 1px solid var(--paper-line);
   white-space: nowrap;
 }
+table.ledger th.sortable-th { cursor: pointer; user-select: none; }
+table.ledger th.sortable-th:hover { color: var(--ink); }
 table.ledger td {
   padding: 12px 14px;
   border-bottom: 1px solid #eef0eb;
@@ -513,6 +515,7 @@ table.ledger tr:hover td { background: #fafbf9; }
 
 @media print {
   body * { visibility: hidden; background: none !important; }
-  #invoice-print-area, #invoice-print-area * { visibility: visible; }
-  #invoice-print-area { position: absolute; top: 0; left: 0; width: 100%; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; top: 0; left: 0; width: 100%; }
+  .no-print { display: none !important; }
 }

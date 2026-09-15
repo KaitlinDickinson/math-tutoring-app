@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 const empty = {
-  firstName: '', lastName: '', studentContact: '',
+  firstName: '', lastName: '', studentContact: '', grade: '',
   accountable: { name: '', surname: '', contact: '', email: '' },
   paymentMethod: 'EFT',
   paymentTiming: 'onDay',
@@ -23,7 +23,7 @@ export default function StudentForm({ initial, defaultRate, onSubmit, onCancel }
 
   const submit = (e) => {
     e.preventDefault()
-    onSubmit({ ...form, hourlyRate: Number(form.hourlyRate) || 0 })
+    onSubmit({ ...form, hourlyRate: Number(form.hourlyRate) || 0, grade: form.grade === '' ? '' : Number(form.grade) })
   }
 
   return (
@@ -39,9 +39,16 @@ export default function StudentForm({ initial, defaultRate, onSubmit, onCancel }
           <input required value={form.lastName} onChange={(e) => set('lastName', e.target.value)} />
         </div>
       </div>
-      <div className="field">
-        <label>Student contact number</label>
-        <input required value={form.studentContact} onChange={(e) => set('studentContact', e.target.value)} />
+      <div className="field-row">
+        <div className="field">
+          <label>Student contact number</label>
+          <input required value={form.studentContact} onChange={(e) => set('studentContact', e.target.value)} />
+        </div>
+        <div className="field">
+          <label>Grade</label>
+          <input type="number" min="0" max="12" placeholder="e.g. 10" value={form.grade} onChange={(e) => set('grade', e.target.value)} />
+          <span className="field-hint">Bumped up by one automatically each new year.</span>
+        </div>
       </div>
 
       <h3 style={{ margin: '20px 0 12px' }}>Person accountable for account</h3>

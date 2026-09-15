@@ -6,6 +6,7 @@ import Kiosk from './pages/Kiosk'
 import AdminLogin from './pages/AdminLogin'
 import Students from './pages/Students'
 import CalendarPage from './pages/CalendarPage'
+import Attendance from './pages/Attendance'
 import Invoices from './pages/Invoices'
 import Settings from './pages/Settings'
 
@@ -26,6 +27,7 @@ function AdminLayout({ children }) {
   const links = [
     { to: '/admin/students', label: 'Students' },
     { to: '/admin/calendar', label: 'Calendar' },
+    { to: '/admin/attendance', label: 'Attendance' },
     { to: '/admin/invoices', label: 'Invoices' },
     { to: '/admin/settings', label: 'Settings' }
   ]
@@ -81,6 +83,7 @@ export default function App() {
         <Route path="/admin" element={<Navigate to="/admin/students" replace />} />
         <Route path="/admin/students" element={<AdminLayout><Students /></AdminLayout>} />
         <Route path="/admin/calendar" element={<AdminLayout><CalendarPage /></AdminLayout>} />
+        <Route path="/admin/attendance" element={<AdminLayout><Attendance /></AdminLayout>} />
         <Route path="/admin/invoices" element={<AdminLayout><Invoices /></AdminLayout>} />
         <Route path="/admin/settings" element={<AdminLayout><Settings /></AdminLayout>} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -13,6 +13,11 @@ export function formatDate(dateStr, fmt = 'd MMM yyyy') {
   return format(d, fmt)
 }
 
+export function formatTime(isoStamp) {
+  if (!isoStamp) return ''
+  return format(parseISO(isoStamp), 'HH:mm')
+}
+
 export function todayISO() {
   return new Date().toISOString().slice(0, 10)
 }
@@ -153,6 +158,7 @@ export function exportStudentsCSV(students) {
   const rows = students.map((s) => ({
     FirstName: s.firstName,
     Surname: s.lastName,
+    Grade: s.grade ?? '',
     StudentContact: s.studentContact,
     AccountableName: s.accountable?.name || '',
     AccountableSurname: s.accountable?.surname || '',
@@ -178,18 +184,34 @@ export function exportInvoicesCSV(invoices) {
   downloadCSV(`invoices-${todayISO()}.csv`, rows)
 }
 
-export function exportSessionsCSV(sessions, students) {
-  const nameOf = (id) => {
-    const st = students.find((s) => s.id === id)
-    return st ? `${st.firstName} ${st.lastName}` : id
-  }
-  const rows = sessions.map((s) => ({
-    Date: s.date,
-    Time: s.checkInTime || '',
-    Student: nameOf(s.studentId),
-    Type: s.sessionType,
-    DurationHours: s.durationHours,
-    Rate: s.rate
-  }))
-  downloadCSV(`sign-ins-${todayISO()}.csv`, rows)
+/** Full attendance register: every sign-in plus the student's profile and
+ * accountable-person details, for the tutor's records. Signatures are
+ * images, so they're left out of the CSV — see the printable attendance
+ * view for those.
+ */
+export function exportAttendanceCSV(sessions, students) {
+  const studentOf = (id) => students.find((s) => s.id === id)
+  const rows = sessions.map((s) => {
+    const st = studentOf(s.studentId)
+    return {
+      Date: s.date,
+      Time: formatTime(s.checkInTime),
+      FirstName: st?.firstName || '',
+      LastName: st?.lastName || '',
+      Grade: st?.grade ?? '',
+      StudentContact: st?.studentContact || '',
+      AccountableName: st?.accountable?.name || '',
+      AccountableSurname: st?.accountable?.surname || '',
+      AccountableContact: st?.accountable?.contact || '',
+      AccountableEmail: st?.accountable?.email || '',
+      PaymentMethod: st?.paymentMethod || '',
+      PaymentTiming: st?.paymentTiming || '',
+      HourlyRate: st?.hourlyRate ?? '',
+      SessionType: s.sessionType,
+      DurationHours: s.durationHours,
+      RateCharged: s.rate,
+      Signed: s.signature ? 'Yes' : 'No'
+    }
+  })
+  downloadCSV(`attendance-${todayISO()}.csv`, rows)
 }
