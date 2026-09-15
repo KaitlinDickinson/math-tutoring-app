@@ -75,14 +75,19 @@ export default function Invoices() {
     setViewing(null)
   }
 
+  // Totals only ever count invoices belonging to a student who still exists,
+  // so they always match what's visible in the table below — a deleted
+  // student's old invoices are kept for the record but don't skew this.
   const totals = useMemo(() => {
-    const unpaid = invoices.filter((i) => i.year === year && i.month === month && i.status === 'unpaid')
-    const paid = invoices.filter((i) => i.year === year && i.month === month && i.status === 'paid')
-    return {
-      unpaidTotal: unpaid.reduce((s, i) => s + i.total, 0),
-      paidTotal: paid.reduce((s, i) => s + i.total, 0)
-    }
-  }, [invoices, year, month])
+    let unpaidTotal = 0
+    let paidTotal = 0
+    rows.forEach((r) => {
+      if (!r.existing) return
+      if (r.existing.status === 'unpaid') unpaidTotal += r.existing.total
+      if (r.existing.status === 'paid') paidTotal += r.existing.total
+    })
+    return { unpaidTotal, paidTotal }
+  }, [rows])
 
   return (
     <>
@@ -91,7 +96,7 @@ export default function Invoices() {
           <h1>Invoices</h1>
           <p>Generated from signed-in sessions each month.</p>
         </div>
-        <button className="btn btn-outline" onClick={() => exportInvoicesCSV(invoices.filter((i) => i.year === year && i.month === month))}>
+        <button className="btn btn-outline" onClick={() => exportInvoicesCSV(rows.map((r) => r.existing).filter(Boolean))}>
           Export CSV
         </button>
       </div>

@@ -242,6 +242,9 @@ table.ledger th {
 }
 table.ledger th.sortable-th { cursor: pointer; user-select: none; }
 table.ledger th.sortable-th:hover { color: var(--ink); }
+table.ledger th.draggable-th { cursor: grab; }
+table.ledger th.draggable-th.dragging { opacity: 0.4; }
+table.ledger th.draggable-th.drag-over { box-shadow: inset 2px 0 0 var(--accent); }
 table.ledger td {
   padding: 12px 14px;
   border-bottom: 1px solid #eef0eb;
