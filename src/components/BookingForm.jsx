@@ -19,7 +19,14 @@ export default function BookingForm({ initial, students, defaultDate, onSubmit, 
     ratesOverride: {}
   })
 
+  const [query, setQuery] = useState('')
+
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+
+  const q = query.trim().toLowerCase()
+  const visibleStudents = q
+    ? students.filter((s) => `${s.firstName} ${s.lastName}`.toLowerCase().includes(q))
+    : students
 
   const toggleStudent = (id) => {
     setForm((f) => {
@@ -105,8 +112,20 @@ export default function BookingForm({ initial, students, defaultDate, onSubmit, 
 
       <div className="field">
         <label>{form.type === 'group' ? 'Students in this group' : 'Student'}</label>
+        <div className="search-wrap" style={{ marginBottom: 8 }}>
+          <span className="search-icon">🔍</span>
+          <input
+            placeholder="Search students…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault() }}
+          />
+        </div>
         <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid #cdd3de', borderRadius: 3 }}>
-          {students.map((s) => (
+          {visibleStudents.length === 0 && (
+            <div style={{ padding: '9px 12px', fontSize: 14, color: '#6b7280' }}>No students match "{query}"</div>
+          )}
+          {visibleStudents.map((s) => (
             <label key={s.id} className="checkbox-row" style={{ padding: '9px 12px', borderBottom: '1px solid #eef0eb' }}>
               <input
                 type={form.type === 'group' ? 'checkbox' : 'radio'}
