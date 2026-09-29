@@ -507,6 +507,20 @@ table.ledger tr:hover td { background: #fafbf9; }
 .month-cell .cell-more { font-size: 10.5px; color: var(--ink-faint); }
 .month-cell .cell-slot.walk-in { background: #eef1f7; color: var(--ink-soft); }
 
+/* ---------- Attendance ---------- */
+.attendance-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.attendance-summary .btn-link { margin-left: 8px; }
+.attendance-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 /* ---------- Invoices ---------- */
 .tab-count {
   display: inline-block;

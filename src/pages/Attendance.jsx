@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
-import { listenStudents, listenSessions, addSession, updateSession, deleteSession } from '../lib/db'
-import { formatDate, formatTime, formatCurrency, monthLabel, exportAttendanceCSV } from '../lib/helpers'
+import { listenStudents, listenSessions, listenBookings, addSession, updateSession, deleteSession } from '../lib/db'
+import {
+  formatDate, formatTime, formatCurrency, monthLabel, exportAttendanceCSV, sessionHours, sessionLabel
+} from '../lib/helpers'
 import Modal from '../components/Modal'
 import SessionForm from '../components/SessionForm'
 
 const now = new Date()
+const fullName = (st) => `${st.firstName} ${st.lastName}`
 
 export default function Attendance() {
   const [students, setStudents] = useState([])
   const [sessions, setSessions] = useState([])
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth())
+  const [bookings, setBookings] = useState([])
+  const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() })
+  const { year, month } = cursor
   const [query, setQuery] = useState('')
   const [modal, setModal] = useState(null) // null | 'add' | session object (edit)
   const [confirmDelete, setConfirmDelete] = useState(null)
@@ -18,10 +22,17 @@ export default function Attendance() {
   useEffect(() => {
     const u1 = listenStudents(setStudents)
     const u2 = listenSessions(setSessions)
-    return () => { u1(); u2() }
+    const u3 = listenBookings(setBookings)
+    return () => { u1(); u2(); u3() }
   }, [])
 
   const studentOf = (id) => students.find((s) => s.id === id)
+  const bookingOf = (id) => (id ? bookings.find((b) => b.id === id) : null)
+
+  const shiftMonth = (delta) => setCursor(({ year, month }) => {
+    const d = new Date(year, month + delta, 1)
+    return { year: d.getFullYear(), month: d.getMonth() }
+  })
 
   const handleSave = async (data) => {
     if (modal === 'add') await addSession(data)
@@ -40,13 +51,37 @@ export default function Attendance() {
       .filter((s) => {
         if (!q) return true
         const st = studentOf(s.studentId)
-        return st && `${st.firstName} ${st.lastName}`.toLowerCase().includes(q)
+        return st && fullName(st).toLowerCase().includes(q)
       })
       .sort((a, b) => {
         if (a.date !== b.date) return a.date < b.date ? 1 : -1
         return (a.checkInTime || '') < (b.checkInTime || '') ? 1 : -1
       })
   }, [sessions, students, year, month, query])
+
+  // Which students are in view, so the summary and export say exactly
+  // whose attendance they cover.
+  const shownStudents = useMemo(() => {
+    const ids = [...new Set(rows.map((s) => s.studentId))]
+    return ids.map(studentOf).filter(Boolean)
+  }, [rows, students])
+
+  const searching = query.trim() !== ''
+  const oneStudent = searching && shownStudents.length === 1 ? shownStudents[0] : null
+  const period = monthLabel(year, month)
+  const signIns = `${rows.length} sign-in${rows.length === 1 ? '' : 's'}`
+
+  const exportLabel = !searching
+    ? 'Export CSV'
+    : oneStudent
+      ? `Export ${fullName(oneStudent)}'s attendance`
+      : `Export ${shownStudents.length} students' attendance`
+
+  const handleExport = () => {
+    const who = oneStudent ? fullName(oneStudent) : searching ? `search-${query.trim()}` : 'all'
+    const filename = `attendance-${who}-${period}.csv`.replace(/[^\w.-]+/g, '-')
+    exportAttendanceCSV(rows, students, bookings, filename)
+  }
 
   return (
     <>
@@ -55,32 +90,43 @@ export default function Attendance() {
           <h1>Attendance</h1>
           <p>Every signed-in session, with the student's full profile and accountable-person details.</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn btn-outline" onClick={() => exportAttendanceCSV(rows, students)}>Export CSV</button>
-          <button className="btn btn-outline" onClick={() => window.print()}>Print / Save as PDF</button>
-          <button className="btn btn-accent" onClick={() => setModal('add')}>+ Add attendance</button>
-        </div>
+        <button className="btn btn-accent" onClick={() => setModal('add')}>+ Add attendance</button>
       </div>
 
       <div className="cal-toolbar">
         <div className="cal-nav">
-          <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-            {Array.from({ length: 12 }).map((_, i) => (
-              <option key={i} value={i}>{monthLabel(year, i).split(' ')[0]}</option>
-            ))}
-          </select>
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
-            {[year - 1, year, year + 1].map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
+          <button onClick={() => shiftMonth(-1)} aria-label="Previous month">←</button>
+          <span className="cal-label">{period}</span>
+          <button onClick={() => shiftMonth(1)} aria-label="Next month">→</button>
+          <button className="btn btn-outline btn-sm" onClick={() => setCursor({ year: now.getFullYear(), month: now.getMonth() })}>This month</button>
         </div>
-        <div className="search-wrap" style={{ maxWidth: 280 }}>
+        <div className="search-wrap" style={{ maxWidth: 280, flex: 1 }}>
           <span className="search-icon">🔍</span>
-          <input placeholder="Search student…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input placeholder="Search student…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search student" />
+        </div>
+      </div>
+
+      <div className="attendance-summary">
+        <div>
+          {oneStudent
+            ? <><strong>{fullName(oneStudent)}</strong>: {signIns} in {period}</>
+            : searching
+              ? <>{shownStudents.length} students matching "<strong>{query.trim()}</strong>": {signIns} in {period}</>
+              : <>Everyone: {signIns} in {period}</>}
+          {searching && (
+            <button type="button" className="btn-link" onClick={() => setQuery('')} aria-label="Clear search">× Clear search</button>
+          )}
+        </div>
+        <div className="attendance-actions">
+          <button className="btn btn-outline btn-sm" onClick={handleExport} disabled={rows.length === 0}>{exportLabel}</button>
+          <button className="btn btn-outline btn-sm" onClick={() => window.print()} disabled={rows.length === 0}>Print / Save as PDF</button>
         </div>
       </div>
 
       <div className="panel print-area">
-        <p className="muted" style={{ padding: '14px 14px 0' }}>{monthLabel(year, month)} — {rows.length} sign-in{rows.length === 1 ? '' : 's'}</p>
+        <p className="muted" style={{ padding: '14px 14px 0' }}>
+          {oneStudent ? `${fullName(oneStudent)}, ` : ''}{period}: {signIns}
+        </p>
         <div className="table-scroll">
           <table className="ledger">
             <thead>
@@ -121,8 +167,8 @@ export default function Attendance() {
                       <div className="muted">{formatCurrency(st?.hourlyRate)}/hr default</div>
                     </td>
                     <td>
-                      {s.bookingTitle || (s.sessionType === 'group' ? 'Group session' : 'Individual session')}
-                      <div className="muted">{s.durationHours}h @ {formatCurrency(s.rate)}</div>
+                      {sessionLabel(bookingOf(s.bookingId), s.bookingTitle, s.sessionType)}
+                      <div className="muted">{sessionHours(s, bookingOf(s.bookingId))}h @ {formatCurrency(s.rate)}</div>
                     </td>
                     <td className="no-print" style={{ whiteSpace: 'nowrap' }}>
                       <button className="btn btn-outline btn-sm" onClick={() => setModal(s)}>Edit</button>{' '}
@@ -132,7 +178,9 @@ export default function Attendance() {
                 )
               })}
               {rows.length === 0 && (
-                <tr><td colSpan={8}><div className="empty-state">No sign-ins found for this month.</div></td></tr>
+                <tr><td colSpan={8}><div className="empty-state">
+                  {searching ? `No sign-ins matching "${query.trim()}" in ${period}.` : `No sign-ins in ${period}.`}
+                </div></td></tr>
               )}
             </tbody>
           </table>

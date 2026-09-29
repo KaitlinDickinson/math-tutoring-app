@@ -293,10 +293,12 @@ export function exportInvoicesCSV(invoices) {
  * images, so they're left out of the CSV — see the printable attendance
  * view for those.
  */
-export function exportAttendanceCSV(sessions, students) {
+export function exportAttendanceCSV(sessions, students, bookings, filename = `attendance-${todayISO()}.csv`) {
   const studentOf = (id) => students.find((s) => s.id === id)
+  const bookingOf = (id) => (id ? bookings.find((b) => b.id === id) : null)
   const rows = sessions.map((s) => {
     const st = studentOf(s.studentId)
+    const booking = bookingOf(s.bookingId)
     return {
       Date: s.date,
       Time: formatTime(s.checkInTime),
@@ -311,11 +313,11 @@ export function exportAttendanceCSV(sessions, students) {
       PaymentMethod: st?.paymentMethod || '',
       PaymentTiming: st?.paymentTiming || '',
       HourlyRate: st?.hourlyRate ?? '',
-      SessionType: s.sessionType,
-      DurationHours: s.durationHours,
+      Session: sessionLabel(booking, s.bookingTitle, s.sessionType),
+      DurationHours: sessionHours(s, booking),
       RateCharged: s.rate,
       Signed: s.signature ? 'Yes' : 'No'
     }
   })
-  downloadCSV(`attendance-${todayISO()}.csv`, rows)
+  downloadCSV(filename, rows)
 }
