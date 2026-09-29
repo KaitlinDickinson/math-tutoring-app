@@ -32,9 +32,12 @@ function AdminLayout({ children }) {
     { to: '/admin/settings', label: 'Settings' }
   ]
 
-  const handleLogout = async () => {
+  // Leave the admin pages before signing out, so the "not logged in" guard
+  // above doesn't bounce us to /admin/login on the way to the kiosk.
+  const handleLogout = async (e) => {
+    e.preventDefault()
+    navigate('/', { replace: true })
     await signOut(auth)
-    navigate('/admin/login')
   }
 
   return (
