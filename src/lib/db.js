@@ -1,5 +1,5 @@
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, setDoc, writeBatch
+  collection, doc, addDoc, updateDoc, deleteDoc, getDoc, onSnapshot, query, orderBy, setDoc, writeBatch
 } from 'firebase/firestore'
 import { db } from '../firebase'
 
@@ -52,10 +52,34 @@ export const saveSettings = (data) => setDoc(doc(db, 'settings', 'general'), dat
 
 // ---------- Admin users (single doc: settings/users) ----------
 // The client SDK can't list Firebase Auth accounts, so we keep our own list
-// of tutor logins here: [{ name, email }].
+// of tutor logins here: users: [{ name, email }]. `emails` is a lowercase copy
+// that firestore.rules checks to decide who counts as an admin.
+const adminUsersDoc = doc(db, 'settings', 'users')
+const normEmail = (email) => email.trim().toLowerCase()
+
 export const listenAdminUsers = (callback) => {
-  return onSnapshot(doc(db, 'settings', 'users'), (snap) => {
+  return onSnapshot(adminUsersDoc, (snap) => {
     callback(snap.exists() ? snap.data().users || [] : [])
   })
 }
-export const saveAdminUsers = (users) => setDoc(doc(db, 'settings', 'users'), { users })
+export const saveAdminUsers = (users) =>
+  setDoc(adminUsersDoc, { users, emails: users.map((u) => normEmail(u.email)) })
+
+// Resolves true if this login is on the admin list. The very first time
+// (no list set up yet) the logged-in tutor is added as the first admin.
+export async function ensureAdminAccess(email) {
+  let snap
+  try {
+    snap = await getDoc(adminUsersDoc)
+  } catch (err) {
+    if (err.code === 'permission-denied') return false
+    throw err
+  }
+  const data = snap.exists() ? snap.data() : {}
+  if (Array.isArray(data.emails)) return data.emails.includes(normEmail(email))
+
+  const users = data.users || []
+  const listed = users.some((u) => normEmail(u.email) === normEmail(email))
+  await saveAdminUsers(listed ? users : [...users, { name: '', email }])
+  return true
+}

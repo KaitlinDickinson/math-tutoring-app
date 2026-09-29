@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate } from 'react-router-dom'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { auth } from './firebase'
+import { ensureAdminAccess } from './lib/db'
 import Kiosk from './pages/Kiosk'
 import AdminLogin from './pages/AdminLogin'
 import Students from './pages/Students'
@@ -16,13 +17,31 @@ function useAuthUser() {
   return user
 }
 
+// undefined = still checking, true/false = whether this login is on the
+// Settings > Users list (firestore.rules enforces the same thing).
+function useAdminAccess(user) {
+  const [access, setAccess] = useState(undefined)
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    ensureAdminAccess(user.email || '')
+      .then((ok) => { if (!cancelled) setAccess(ok) })
+      .catch(() => { if (!cancelled) setAccess(false) })
+    return () => { cancelled = true }
+  }, [user])
+  return access
+}
+
 function AdminLayout({ children }) {
   const user = useAuthUser()
+  const access = useAdminAccess(user)
   const navigate = useNavigate()
   const [navOpen, setNavOpen] = useState(false)
 
   if (user === undefined) return <div className="empty-state">Loading…</div>
   if (!user) return <Navigate to="/admin/login" replace />
+  if (access === undefined) return <div className="empty-state">Loading…</div>
+  if (!access) return <NoAccess email={user.email} />
 
   const links = [
     { to: '/admin/students', label: 'Students' },
@@ -72,6 +91,25 @@ function AdminLayout({ children }) {
           <a href="#" onClick={handleLogout}>Log out</a>
         </div>
         <main className="main-content">{children}</main>
+      </div>
+    </div>
+  )
+}
+
+function NoAccess({ email }) {
+  const navigate = useNavigate()
+  const handleLogout = async () => {
+    navigate('/', { replace: true })
+    await signOut(auth)
+  }
+  return (
+    <div className="kiosk">
+      <div className="kiosk-body" style={{ maxWidth: 420 }}>
+        <div className="kiosk-header">
+          <h1>No admin access</h1>
+          <p>{email} isn't on the list of people allowed into the admin side. Ask an existing admin to add you under Settings &gt; Users.</p>
+        </div>
+        <button className="btn btn-accent btn-block" onClick={handleLogout}>Log out</button>
       </div>
     </div>
   )

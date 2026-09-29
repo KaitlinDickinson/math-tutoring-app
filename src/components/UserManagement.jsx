@@ -31,15 +31,9 @@ export default function UserManagement() {
 
   const myEmail = auth.currentUser?.email || ''
 
+  // The logged-in tutor is always on this list: AdminLayout adds the first
+  // admin via ensureAdminAccess, and only listed users can get this far.
   useEffect(() => listenAdminUsers(setUsers), [])
-
-  // Make sure whoever is logged in always appears on the list, e.g. the
-  // original tutor account that was created in the Firebase console.
-  useEffect(() => {
-    if (users && myEmail && !users.some((u) => sameEmail(u.email, myEmail))) {
-      saveAdminUsers([...users, { name: '', email: myEmail }])
-    }
-  }, [users, myEmail])
 
   const flash = (type, text) => setMessage({ type, text })
 
@@ -86,9 +80,9 @@ export default function UserManagement() {
   }
 
   const handleRemove = async (email) => {
-    if (!window.confirm(`Remove ${email} from the list?\n\nThis doesn't delete their login. To stop them signing in completely, also delete them in the Firebase console under Authentication > Users.`)) return
+    if (!window.confirm(`Remove ${email}?\n\nThey'll immediately lose access to the admin side and all student and invoice data.`)) return
     await saveAdminUsers(users.filter((u) => !sameEmail(u.email, email)))
-    flash('ok', `${email} removed from the list.`)
+    flash('ok', `${email} removed. They no longer have admin access.`)
   }
 
   if (users === null) return <div className="empty-state">Loading…</div>

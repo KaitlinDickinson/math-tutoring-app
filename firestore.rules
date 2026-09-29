@@ -2,42 +2,71 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // An admin is a signed-in login whose email is on the Settings > Users
+    // list (settings/users.emails). Anyone can create a Firebase login with
+    // the public web config, so being signed in alone isn't enough.
+    function adminListPath() {
+      return /databases/$(database)/documents/settings/users;
+    }
+    function signedInEmail() {
+      return request.auth.token.email.lower();
+    }
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && signedInEmail() in get(adminListPath()).data.emails;
+    }
+    // True only before the admin list has ever been set up.
+    function noAdminListYet() {
+      return !exists(adminListPath()) || !('emails' in get(adminListPath()).data);
+    }
+
     // Students: the kiosk needs to read names to power the search bar,
     // and Firestore rules can't hide individual fields, so treat this as
     // "visible to anyone with the kiosk link" (fine for a locked iPad in
-    // your studio). Only a signed-in tutor can add/edit/remove students.
+    // your studio). Only an admin can add/edit/remove students.
     match /students/{studentId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAdmin();
     }
 
     // Sessions: the kiosk creates a sign-in record with no login needed.
-    // Only the tutor (signed in) can read the list, edit, or delete one.
+    // Only an admin can read the list, edit, or delete one.
     match /sessions/{sessionId} {
       allow create: if true;
-      allow read, update, delete: if request.auth != null;
+      allow read, update, delete: if isAdmin();
     }
 
     // Bookings: the kiosk needs to read today's slots to offer them at
     // sign-in, and can create a one-off (non-repeating, single-day) booking
     // when a student signs in with no scheduled session, so it shows up on
-    // the calendar too. Only the tutor can edit/delete, or create anything
+    // the calendar too. Only an admin can edit/delete, or create anything
     // recurring or multi-day.
     match /bookings/{bookingId} {
       allow read: if true;
-      allow create: if request.auth != null || (
+      allow create: if isAdmin() || (
         request.resource.data.repeat == 'none' &&
         request.resource.data.startDate == request.resource.data.endDate
       );
-      allow update, delete: if request.auth != null;
+      allow update, delete: if isAdmin();
     }
 
-    // Invoices and settings: tutor only.
+    // Invoices and settings: admins only.
     match /invoices/{invoiceId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAdmin();
     }
     match /settings/{docId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAdmin();
+    }
+
+    // First-time setup of the admin list: before it exists, the first
+    // signed-in tutor may create it, but only with themselves on it.
+    match /settings/users {
+      allow read: if request.auth != null && noAdminListYet();
+      allow write: if request.auth != null
+        && request.auth.token.email != null
+        && noAdminListYet()
+        && signedInEmail() in request.resource.data.emails;
     }
   }
 }
