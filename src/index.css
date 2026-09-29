@@ -145,7 +145,13 @@ input, select, textarea {
   display: flex;
   min-height: 100vh;
 }
+/* Stays in view while the page scrolls, so Log out is always reachable */
 .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
   width: 220px;
   flex-shrink: 0;
   background: var(--ink);
