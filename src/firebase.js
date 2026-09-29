@@ -6,7 +6,7 @@ import { getAuth } from 'firebase/auth'
 // (Project settings > General > Your apps > SDK setup and configuration).
 // They are safe to expose in client code - Firestore security rules do the
 // actual access control, not these keys.
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,

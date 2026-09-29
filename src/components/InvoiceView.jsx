@@ -13,6 +13,9 @@ export default function InvoiceView({ invoice, settings, onClose, onMarkPaid }) 
           <button className="modal-close" onClick={onClose}>&times;</button>
         </div>
         <div className="modal-body print-area">
+          {settings?.logo && (
+            <img src={settings.logo} alt={billing.businessName || 'Company logo'} style={{ display: 'block', maxWidth: 220, maxHeight: 90, marginBottom: 16 }} />
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
               <h2 style={{ marginBottom: 2 }}>Invoice</h2>

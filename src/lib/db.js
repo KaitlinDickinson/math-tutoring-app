@@ -49,3 +49,13 @@ export const listenSettings = (callback) => {
   })
 }
 export const saveSettings = (data) => setDoc(doc(db, 'settings', 'general'), data, { merge: true })
+
+// ---------- Admin users (single doc: settings/users) ----------
+// The client SDK can't list Firebase Auth accounts, so we keep our own list
+// of tutor logins here: [{ name, email }].
+export const listenAdminUsers = (callback) => {
+  return onSnapshot(doc(db, 'settings', 'users'), (snap) => {
+    callback(snap.exists() ? snap.data().users || [] : [])
+  })
+}
+export const saveAdminUsers = (users) => setDoc(doc(db, 'settings', 'users'), { users })
