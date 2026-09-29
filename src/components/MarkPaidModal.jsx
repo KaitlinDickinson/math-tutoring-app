@@ -55,6 +55,7 @@ export default function MarkPaidModal({ invoice, onClose, onConfirm }) {
           <select value={method} onChange={(e) => setMethod(e.target.value)}>
             <option value="EFT">EFT</option>
             <option value="Card">Card</option>
+            <option value="Cash">Cash</option>
           </select>
         </div>
       </div>
