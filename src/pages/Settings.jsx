@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { listenSettings, saveSettings } from '../lib/db'
 import UserManagement from '../components/UserManagement'
 import InvoiceDocument from '../components/InvoiceDocument'
+import { DEFAULT_WHATSAPP_MESSAGE, WHATSAPP_PLACEHOLDERS, fillWhatsAppMessage } from '../lib/helpers'
 
 const BILLING_DEFAULTS = {
   businessName: '', address: '', contactEmail: '', contactPhone: '',
@@ -46,7 +47,7 @@ export default function Settings() {
       <div className="content-header" style={{ marginBottom: 14 }}>
         <div>
           <h1>Settings</h1>
-          <p>{tab === 'general' ? 'Your business details, logo and default rate.' : 'Who can log in to the admin side.'}</p>
+          <p>{tab === 'general' ? 'Your business details, logo, default rate and WhatsApp message.' : 'Who can log in to the admin side.'}</p>
         </div>
       </div>
 
@@ -74,6 +75,7 @@ function GeneralSettings() {
   const [rate, setRate] = useState('')
   const [billing, setBilling] = useState(BILLING_DEFAULTS)
   const [logo, setLogo] = useState('')
+  const [whatsappMessage, setWhatsappMessage] = useState('')
   const [savedState, setSavedState] = useState(null) // last values from the database
   const [logoError, setLogoError] = useState('')
   const [dragging, setDragging] = useState(false)
@@ -85,11 +87,13 @@ function GeneralSettings() {
       const next = {
         rate: s.defaultHourlyRate ?? 250,
         billing: { ...BILLING_DEFAULTS, ...s.billing },
-        logo: s.logo || ''
+        logo: s.logo || '',
+        whatsappMessage: s.whatsappMessage || DEFAULT_WHATSAPP_MESSAGE
       }
       setRate(next.rate)
       setBilling(next.billing)
       setLogo(next.logo)
+      setWhatsappMessage(next.whatsappMessage)
       setSavedState(next)
     })
     return unsub
@@ -98,10 +102,23 @@ function GeneralSettings() {
   const dirty = savedState && (
     String(rate) !== String(savedState.rate) ||
     logo !== savedState.logo ||
+    whatsappMessage !== savedState.whatsappMessage ||
     Object.keys(BILLING_DEFAULTS).some((k) => billing[k] !== savedState.billing[k])
   )
 
   const setBillingField = (k, v) => setBilling((b) => ({ ...b, [k]: v }))
+
+  const messageRef = useRef(null)
+  const insertPlaceholder = (key) => {
+    const el = messageRef.current
+    const start = el?.selectionStart ?? whatsappMessage.length
+    const end = el?.selectionEnd ?? whatsappMessage.length
+    setWhatsappMessage(whatsappMessage.slice(0, start) + key + whatsappMessage.slice(end))
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(start + key.length, start + key.length)
+    })
+  }
 
   const handleLogoFile = async (file) => {
     if (!file) return
@@ -126,7 +143,7 @@ function GeneralSettings() {
   const handleSave = async (e) => {
     e.preventDefault()
     setSaving(true)
-    await saveSettings({ defaultHourlyRate: Number(rate) || 0, billing, logo })
+    await saveSettings({ defaultHourlyRate: Number(rate) || 0, billing, logo, whatsappMessage })
     setSaving(false)
     setJustSaved(true)
     setTimeout(() => setJustSaved(false), 2000)
@@ -240,6 +257,41 @@ function GeneralSettings() {
             <div className="field" style={{ maxWidth: 220, marginBottom: 0 }}>
               <label htmlFor="s-rate">Default hourly rate</label>
               <input id="s-rate" type="number" min="0" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} />
+            </div>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-intro">
+            <h3>WhatsApp message</h3>
+            <p>Sent with the invoice PDF when you press "Send on WhatsApp". Click a detail below to add it where your cursor is.</p>
+          </div>
+          <div>
+            <div className="field">
+              <label htmlFor="s-whatsapp">Message</label>
+              <textarea
+                id="s-whatsapp"
+                ref={messageRef}
+                rows={6}
+                value={whatsappMessage}
+                onChange={(e) => setWhatsappMessage(e.target.value)}
+              />
+            </div>
+            <div className="placeholder-row">
+              {WHATSAPP_PLACEHOLDERS.map((p) => (
+                <button key={p.key} type="button" className="pill" onClick={() => insertPlaceholder(p.key)}>
+                  {p.label}
+                </button>
+              ))}
+              <button type="button" className="btn-link" onClick={() => setWhatsappMessage(DEFAULT_WHATSAPP_MESSAGE)}>
+                Reset to default
+              </button>
+            </div>
+            <div className="whatsapp-preview">
+              <div className="whatsapp-preview-label">How it will look</div>
+              <div className="whatsapp-bubble">
+                {fillWhatsAppMessage(whatsappMessage, sampleInvoice(rate), { billing })}
+              </div>
             </div>
           </div>
         </section>

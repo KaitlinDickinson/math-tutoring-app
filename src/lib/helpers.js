@@ -130,6 +130,76 @@ export function monthLabel(year, month) {
   return format(new Date(year, month, 1), 'MMMM yyyy')
 }
 
+// ---------- WhatsApp invoice sharing ----------
+
+export const DEFAULT_WHATSAPP_MESSAGE =
+  "Hi {parent}, please find attached {student}'s invoice for {month}. The total due is {total}.\n\nThank you!\n{business}"
+
+// Placeholders the tutor can use in the Settings message template.
+export const WHATSAPP_PLACEHOLDERS = [
+  { key: '{parent}', label: "Parent's first name" },
+  { key: '{student}', label: "Student's name" },
+  { key: '{month}', label: 'Invoice month' },
+  { key: '{total}', label: 'Invoice total' },
+  { key: '{business}', label: 'Your business name' }
+]
+
+export function fillWhatsAppMessage(template, invoice, settings) {
+  const values = {
+    '{parent}': invoice.accountable?.name || '',
+    '{student}': invoice.studentName || '',
+    '{month}': monthLabel(invoice.year, invoice.month),
+    '{total}': formatCurrency(invoice.total),
+    '{business}': settings?.billing?.businessName || ''
+  }
+  return (template || DEFAULT_WHATSAPP_MESSAGE)
+    .replace(/\{(parent|student|month|total|business)\}/g, (m) => values[m])
+    .trim()
+}
+
+/** Turns a local SA number like "082 123 4567" into WhatsApp's 27821234567 format. */
+export function whatsAppNumber(phone) {
+  let digits = String(phone || '').replace(/\D/g, '')
+  if (digits.startsWith('00')) digits = digits.slice(2)
+  if (digits.startsWith('0')) digits = `27${digits.slice(1)}`
+  else if (digits.length === 9) digits = `27${digits}`
+  return digits.length >= 10 ? digits : ''
+}
+
+export function whatsAppLink(phone, text) {
+  const number = whatsAppNumber(phone)
+  return `https://wa.me/${number}?text=${encodeURIComponent(text)}`
+}
+
+export function invoiceFileName(invoice) {
+  return `Invoice - ${invoice.studentName} - ${monthLabel(invoice.year, invoice.month)}.pdf`
+}
+
+/** Renders an invoice element to a PDF Blob. The library is loaded on first use. */
+export async function invoicePdfBlob(element) {
+  const { default: html2pdf } = await import('html2pdf.js')
+  return html2pdf()
+    .set({
+      margin: 12,
+      html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css', 'legacy'] }
+    })
+    .from(element)
+    .outputPdf('blob')
+}
+
+export function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 /** Generic CSV download for arrays of flat objects. */
 export function downloadCSV(filename, rows) {
   if (!rows.length) return
