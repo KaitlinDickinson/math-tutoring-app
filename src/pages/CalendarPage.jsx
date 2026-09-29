@@ -69,7 +69,10 @@ export default function CalendarPage() {
         </div>
         <div className="cal-nav">
           <button onClick={goPrev}>←</button>
-          <span className="cal-label">{view === 'month' ? format(cursor, 'MMMM yyyy') : format(cursor, 'EEEE, d MMM yyyy')}</span>
+          <span className="cal-label">
+            {view === 'month' ? format(cursor, 'MMMM yyyy') : format(cursor, 'EEEE, d MMM yyyy')}
+            {view === 'day' && isToday(cursor) && <span className="today-label">Today</span>}
+          </span>
           <button onClick={goNext}>→</button>
           <button className="btn-outline btn btn-sm" onClick={goToday}>Today</button>
         </div>
@@ -86,10 +89,14 @@ export default function CalendarPage() {
             return (
               <div
                 key={iso}
-                className={`month-cell ${isSameMonth(day, cursor) ? '' : 'outside'}`}
+                className={`month-cell ${isSameMonth(day, cursor) ? '' : 'outside'} ${isToday(day) ? 'today' : ''}`}
                 onClick={() => jumpToDay(day)}
+                aria-current={isToday(day) ? 'date' : undefined}
               >
-                <span className="cell-date" style={isToday(day) ? { color: 'var(--accent)' } : undefined}>{format(day, 'd')}</span>
+                <span className="cell-date-row">
+                  <span className="cell-date">{format(day, 'd')}</span>
+                  {isToday(day) && <span className="today-label">Today</span>}
+                </span>
                 {shown.map((s) => (
                   <span key={s.id} className="cell-slot">{s.startTime} {s.title || (s.type === 'group' ? 'Group' : nameOf(s.studentIds[0]))}</span>
                 ))}
