@@ -47,7 +47,8 @@ export default function CalendarPage() {
 
   const handleSave = async (data) => {
     if (modal === 'add') await addBooking(data)
-    else await updateBooking(modal.id, data)
+    // Saving a walk-in from the edit form counts as confirming its times.
+    else await updateBooking(modal.id, modal.walkIn ? { ...data, needsTimeCheck: false } : data)
     setModal(null)
   }
   const handleDelete = async () => { await deleteBooking(confirmDelete.id); setConfirmDelete(null) }
@@ -98,7 +99,9 @@ export default function CalendarPage() {
                   {isToday(day) && <span className="today-label">Today</span>}
                 </span>
                 {shown.map((s) => (
-                  <span key={s.id} className="cell-slot">{s.startTime} {s.title || (s.type === 'group' ? 'Group' : nameOf(s.studentIds[0]))}</span>
+                  <span key={s.id} className={`cell-slot ${s.walkIn ? 'walk-in' : ''}`}>
+                    {s.startTime} {s.walkIn && 'Walk-in: '}{s.title || (s.type === 'group' ? 'Group' : nameOf(s.studentIds[0]))}
+                  </span>
                 ))}
                 {extra > 0 && <span className="cell-more">+{extra} more</span>}
               </div>
@@ -157,6 +160,11 @@ function DayView({ dateISO, bookings, nameOf, onEdit, onDelete }) {
               <span className="badge" style={{ background: b.type === 'group' ? 'var(--amber-soft)' : 'var(--accent-soft)', color: b.type === 'group' ? 'var(--amber)' : 'var(--accent)', marginRight: 8 }}>
                 {b.type === 'group' ? 'Group' : 'Individual'}
               </span>
+              {b.walkIn && (
+                <span className="badge badge-walkin" title="Added at sign-in without a booking. The invoice uses these times.">
+                  {b.needsTimeCheck ? 'Walk-in: check times' : 'Walk-in'}
+                </span>
+              )}
               {b.title && <strong>{b.title}: </strong>}
               {b.studentIds.map(nameOf).join(', ')}
             </div>

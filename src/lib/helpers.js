@@ -26,16 +26,32 @@ export function nowStamp() {
   return new Date().toISOString()
 }
 
+/** Hours for a sign-in: its calendar booking's length, or what was stored at check-in if that booking is gone. */
+export function sessionHours(session, booking) {
+  return booking ? durationHours(booking.startTime, booking.endTime) : (session.durationHours || 1)
+}
+
+export function sessionLabel(booking, fallbackTitle, fallbackType) {
+  if (booking?.walkIn) return 'Walk-in session'
+  const title = booking ? booking.title : fallbackTitle
+  const type = booking ? booking.type : fallbackType
+  return title || (type === 'group' ? 'Group session' : 'Individual session')
+}
+
 /**
  * Build a monthly invoice for one student from their raw check-in sessions.
- * Each session already stores: date (ISO), durationHours, rate (snapshot at
- * check-in time so later rate changes don't rewrite history), bookingTitle.
+ * Hours come from the session's calendar booking as it is now, so fixing a
+ * booking's times fixes the invoice (the Invoices page stops syncing once an
+ * invoice is paid). The rate stays the snapshot taken at check-in so later
+ * rate changes don't rewrite history. Sessions whose booking was deleted fall
+ * back to what was stored at check-in.
  *
  * Also compares against the student's calendar bookings for the month so
  * admin can see booked-but-not-signed-in sessions — these are never billed,
  * just surfaced for transparency.
  */
 export function buildMonthlyInvoice(student, sessions, bookings, year, month) {
+  const bookingById = new Map((bookings || []).map((b) => [b.id, b]))
   const monthSessions = sessions
     .filter((s) => s.studentId === student.id)
     .filter((s) => {
@@ -44,13 +60,20 @@ export function buildMonthlyInvoice(student, sessions, bookings, year, month) {
     })
     .sort((a, b) => (a.date < b.date ? -1 : 1))
 
-  const lineItems = monthSessions.map((s) => ({
-    date: s.date,
-    label: s.bookingTitle || (s.sessionType === 'group' ? 'Group session' : 'Individual session'),
-    durationHours: s.durationHours || 1,
-    rate: s.rate ?? student.hourlyRate ?? 0,
-    amount: (s.durationHours || 1) * (s.rate ?? student.hourlyRate ?? 0)
-  }))
+  let uncheckedWalkIns = 0
+  const lineItems = monthSessions.map((s) => {
+    const booking = s.bookingId ? bookingById.get(s.bookingId) : null
+    const hours = sessionHours(s, booking)
+    const rate = s.rate ?? student.hourlyRate ?? 0
+    if (booking?.walkIn && booking.needsTimeCheck) uncheckedWalkIns += 1
+    return {
+      date: s.date,
+      label: sessionLabel(booking, s.bookingTitle, s.sessionType),
+      durationHours: hours,
+      rate,
+      amount: hours * rate
+    }
+  })
 
   const total = lineItems.reduce((sum, li) => sum + li.amount, 0)
 
@@ -64,10 +87,21 @@ export function buildMonthlyInvoice(student, sessions, bookings, year, month) {
     month,
     lineItems,
     sessionCount: lineItems.length,
+    uncheckedWalkIns,
     missedSessions,
     missedCount: missedSessions.length,
     total
   }
+}
+
+/** Every [year, month] (month 0-11) in which a student has a signed-in session. */
+export function monthsWithSessions(sessions, studentId) {
+  const keys = new Set()
+  sessions.forEach((s) => {
+    if (s.studentId !== studentId || !s.date) return
+    keys.add(s.date.slice(0, 7))
+  })
+  return [...keys].sort().map((k) => [Number(k.slice(0, 4)), Number(k.slice(5, 7)) - 1])
 }
 
 /**
@@ -92,7 +126,7 @@ function findMissedSessions(student, bookings, monthSessions, year, month) {
       if (attended) continue
       missed.push({
         date: iso,
-        label: booking.title || (booking.type === 'group' ? 'Group session' : 'Individual session'),
+        label: sessionLabel(booking),
         durationHours: durationHours(booking.startTime, booking.endTime),
         rate: (booking.ratesOverride && booking.ratesOverride[student.id]) ?? student.hourlyRate ?? 0
       })

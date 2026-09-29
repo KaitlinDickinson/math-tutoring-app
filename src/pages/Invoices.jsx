@@ -1,24 +1,37 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { differenceInCalendarDays } from 'date-fns'
 import {
   listenStudents, listenSessions, listenBookings, listenInvoices, listenSettings, addInvoice, updateInvoice
 } from '../lib/db'
-import { buildMonthlyInvoice, formatCurrency, monthLabel, exportInvoicesCSV, nowStamp } from '../lib/helpers'
+import {
+  buildMonthlyInvoice, monthsWithSessions, formatCurrency, monthLabel, exportInvoicesCSV, nowStamp
+} from '../lib/helpers'
 import InvoiceView from '../components/InvoiceView'
 import MarkPaidModal from '../components/MarkPaidModal'
 
-const now = new Date()
+const TABS = [
+  { key: 'outstanding', label: 'Outstanding' },
+  { key: 'month', label: 'By month' }
+]
+
+const keyOf = (studentId, year, month) => `${studentId}-${year}-${month}`
+
+// Fields that come from sessions + bookings; kept in sync on unpaid invoices.
+const SYNCED_FIELDS = ['studentName', 'accountable', 'lineItems', 'sessionCount', 'missedSessions', 'missedCount', 'uncheckedWalkIns', 'total']
+const syncedSnapshot = (inv) => JSON.stringify(SYNCED_FIELDS.map((f) => inv[f] ?? null))
 
 export default function Invoices() {
-  const [students, setStudents] = useState([])
-  const [sessions, setSessions] = useState([])
-  const [bookings, setBookings] = useState([])
-  const [invoices, setInvoices] = useState([])
+  const [students, setStudents] = useState(null)
+  const [sessions, setSessions] = useState(null)
+  const [bookings, setBookings] = useState(null)
+  const [invoices, setInvoices] = useState(null)
   const [settings, setSettings] = useState({})
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth())
+  const [tab, setTab] = useState('outstanding')
+  const today = new Date()
+  const [cursor, setCursor] = useState({ year: today.getFullYear(), month: today.getMonth() })
   const [viewing, setViewing] = useState(null)
   const [markingPaid, setMarkingPaid] = useState(null)
-  const [statusFilter, setStatusFilter] = useState('all')
+  const creating = useRef(new Set())
 
   useEffect(() => {
     const u1 = listenStudents(setStudents)
@@ -29,45 +42,99 @@ export default function Invoices() {
     return () => { u1(); u2(); u3(); u4(); u5() }
   }, [])
 
-  // One row per student for the selected month: existing invoice, or a live preview built from sign-ins
-  const rows = useMemo(() => {
-    return students.map((student) => {
-      const existing = invoices.find((inv) => inv.studentId === student.id && inv.year === year && inv.month === month)
-      const preview = buildMonthlyInvoice(student, sessions, bookings, year, month)
-      return { student, existing, preview }
-    }).filter((r) => r.existing || r.preview.sessionCount > 0 || r.preview.missedCount > 0)
-  }, [students, sessions, bookings, invoices, year, month])
+  const loaded = students && sessions && bookings && invoices
+  const studentById = useMemo(() => new Map((students || []).map((s) => [s.id, s])), [students])
 
-  const filteredRows = useMemo(() => {
-    if (statusFilter === 'all') return rows
-    return rows.filter((r) => (r.existing?.status || 'unbilled') === statusFilter)
-  }, [rows, statusFilter])
+  // Saved invoices by student + month. Deleted students' invoices are kept
+  // in the database for the record but left out of everything on this page.
+  const invoiceByKey = useMemo(() => {
+    const map = new Map()
+    ;(invoices || []).forEach((inv) => {
+      if (!studentById.has(inv.studentId)) return
+      const k = keyOf(inv.studentId, inv.year, inv.month)
+      if (!map.has(k)) map.set(k, inv)
+    })
+    return map
+  }, [invoices, studentById])
 
-  const generate = async (row) => {
-    const inv = { ...row.preview, status: 'unpaid', generatedAt: nowStamp() }
-    if (row.existing) {
-      await updateInvoice(row.existing.id, inv)
-    } else {
-      await addInvoice(inv)
-    }
-  }
+  // What every invoice should say right now, from sign-ins and the calendar:
+  // one per student per month with sessions, plus any already-saved invoice.
+  const previewByKey = useMemo(() => {
+    const map = new Map()
+    if (!loaded) return map
+    students.forEach((student) => {
+      const months = new Set(monthsWithSessions(sessions, student.id).map(([y, m]) => `${y}-${m}`))
+      invoiceByKey.forEach((inv) => { if (inv.studentId === student.id) months.add(`${inv.year}-${inv.month}`) })
+      months.forEach((ym) => {
+        const [y, m] = ym.split('-').map(Number)
+        map.set(keyOf(student.id, y, m), buildMonthlyInvoice(student, sessions, bookings, y, m))
+      })
+    })
+    return map
+  }, [loaded, students, sessions, bookings, invoiceByKey])
 
-  // Keep already-generated (unpaid) invoices in sync with new sign-ins automatically —
-  // no manual "Refresh" needed. Stops once an invoice is marked paid.
+  // Every month with signed-in sessions gets an invoice automatically, and
+  // unpaid invoices follow any change to sign-ins or the calendar. Paid
+  // invoices are never touched.
   useEffect(() => {
-    rows.forEach((row) => {
-      const { existing, preview } = row
-      if (!existing || existing.status === 'paid') return
-      const changed = existing.sessionCount !== preview.sessionCount
-        || existing.total !== preview.total
-        || (existing.missedCount || 0) !== preview.missedCount
-        || JSON.stringify(existing.lineItems) !== JSON.stringify(preview.lineItems)
-        || JSON.stringify(existing.missedSessions || []) !== JSON.stringify(preview.missedSessions)
-      if (changed) {
-        updateInvoice(existing.id, { ...preview, status: existing.status })
+    if (!loaded) return
+    previewByKey.forEach((preview, k) => {
+      const existing = invoiceByKey.get(k)
+      if (!existing) {
+        if (preview.sessionCount === 0 || creating.current.has(k)) return
+        creating.current.add(k)
+        addInvoice({ ...preview, accountable: preview.accountable ?? null, status: 'unpaid', generatedAt: nowStamp() })
+          .catch(() => creating.current.delete(k))
+        return
+      }
+      if (existing.status === 'paid') return
+      if (syncedSnapshot(existing) !== syncedSnapshot(preview)) {
+        updateInvoice(existing.id, Object.fromEntries(SYNCED_FIELDS.map((f) => [f, preview[f] ?? null])))
       }
     })
-  }, [rows])
+  }, [loaded, previewByKey, invoiceByKey])
+
+  const isCurrentMonth = (inv) => inv.year === today.getFullYear() && inv.month === today.getMonth()
+
+  const outstanding = useMemo(() => {
+    const list = [...invoiceByKey.values()]
+      .filter((inv) => inv.status !== 'paid' && inv.total > 0)
+      .sort((a, b) => (a.year - b.year) || (a.month - b.month) || a.studentName.localeCompare(b.studentName))
+    const total = list.reduce((sum, inv) => sum + inv.total, 0)
+    const inProgress = list.filter(isCurrentMonth).reduce((sum, inv) => sum + inv.total, 0)
+    return { list, total, inProgress }
+  }, [invoiceByKey])
+
+  // By month: every student with sessions or missed bookings that month.
+  const monthRows = useMemo(() => {
+    if (!loaded) return []
+    const { year, month } = cursor
+    return students
+      .map((student) => {
+        const k = keyOf(student.id, year, month)
+        const invoice = invoiceByKey.get(k)
+        const preview = previewByKey.get(k) || buildMonthlyInvoice(student, sessions, bookings, year, month)
+        return { student, invoice, preview }
+      })
+      .filter((r) => r.invoice || r.preview.sessionCount > 0 || r.preview.missedCount > 0)
+      .sort((a, b) => a.preview.studentName.localeCompare(b.preview.studentName))
+  }, [loaded, students, sessions, bookings, invoiceByKey, previewByKey, cursor])
+
+  const monthTotals = useMemo(() => {
+    let billed = 0
+    let paid = 0
+    monthRows.forEach(({ invoice }) => {
+      if (!invoice) return
+      billed += invoice.total
+      if (invoice.status === 'paid') paid += invoice.total
+    })
+    return { billed, paid, unpaid: billed - paid }
+  }, [monthRows])
+
+  const shiftMonth = (delta) => setCursor(({ year, month }) => {
+    const d = new Date(year, month + delta, 1)
+    return { year: d.getFullYear(), month: d.getMonth() }
+  })
 
   const handleMarkPaid = async ({ paidDate, paidMethod, amountPaid, paidReference }) => {
     await updateInvoice(markingPaid.id, { status: 'paid', paidDate, paidMethod, amountPaid, paidReference })
@@ -75,113 +142,187 @@ export default function Invoices() {
     setViewing(null)
   }
 
-  // Totals only ever count invoices belonging to a student who still exists,
-  // so they always match what's visible in the table below — a deleted
-  // student's old invoices are kept for the record but don't skew this.
-  const totals = useMemo(() => {
-    let unpaidTotal = 0
-    let paidTotal = 0
-    rows.forEach((r) => {
-      if (!r.existing) return
-      if (r.existing.status === 'unpaid') unpaidTotal += r.existing.total
-      if (r.existing.status === 'paid') paidTotal += r.existing.total
-    })
-    return { unpaidTotal, paidTotal }
-  }, [rows])
+  // Always show the live saved copy, so the open invoice updates with syncs.
+  const liveViewing = viewing && (invoices || []).find((inv) => inv.id === viewing.id)
+
+  const exportRows = tab === 'outstanding'
+    ? outstanding.list
+    : monthRows.map((r) => r.invoice).filter(Boolean)
+
+  if (!loaded) return <div className="empty-state">Loading…</div>
 
   return (
     <>
-      <div className="content-header">
+      <div className="content-header" style={{ marginBottom: 14 }}>
         <div>
           <h1>Invoices</h1>
-          <p>Generated from signed-in sessions each month.</p>
+          <p>Built automatically from sign-ins and the calendar. Missed sessions are listed but not billed.</p>
         </div>
-        <button className="btn btn-outline" onClick={() => exportInvoicesCSV(rows.map((r) => r.existing).filter(Boolean))}>
+        <button className="btn btn-outline" onClick={() => exportInvoicesCSV(exportRows)} disabled={exportRows.length === 0}>
           Export CSV
         </button>
       </div>
 
-      <div className="cal-toolbar">
-        <div className="cal-nav">
-          <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-            {Array.from({ length: 12 }).map((_, i) => (
-              <option key={i} value={i}>{monthLabel(year, i).split(' ')[0]}</option>
-            ))}
-          </select>
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
-            {[year - 1, year, year + 1].map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
-        <div className="pill-row">
-          {['all', 'unbilled', 'unpaid', 'paid'].map((f) => (
-            <button key={f} className={`pill ${statusFilter === f ? 'active' : ''}`} onClick={() => setStatusFilter(f)}>
-              {f[0].toUpperCase() + f.slice(1)}
-            </button>
-          ))}
-        </div>
+      <div className="tab-bar" role="tablist">
+        {TABS.map((t) => (
+          <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={tab === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>
+            {t.label}
+            {t.key === 'outstanding' && outstanding.list.length > 0 && <span className="tab-count">{outstanding.list.length}</span>}
+          </button>
+        ))}
       </div>
 
-      <div className="stat-row">
-        <div className="stat-box"><div className="stat-label">Unpaid this month</div><div className="stat-value">{formatCurrency(totals.unpaidTotal)}</div></div>
-        <div className="stat-box"><div className="stat-label">Paid this month</div><div className="stat-value">{formatCurrency(totals.paidTotal)}</div></div>
-      </div>
+      {tab === 'outstanding' ? (
+        <>
+          <div className="owed-summary">
+            <div className="owed-label">Total outstanding</div>
+            <div className="owed-amount">{formatCurrency(outstanding.total)}</div>
+            {outstanding.inProgress > 0 && (
+              <div className="owed-note">
+                Includes {formatCurrency(outstanding.inProgress)} for {monthLabel(today.getFullYear(), today.getMonth())}, which is still in progress.
+              </div>
+            )}
+          </div>
 
-      <div className="panel">
-        <div className="table-scroll">
-          <table className="ledger">
-            <thead>
-              <tr><th>Student</th><th>Sessions signed in</th><th>Total</th><th>Status</th><th></th></tr>
-            </thead>
-            <tbody>
-              {filteredRows.map((row) => {
-                const active = row.existing
-                const sessionCount = active ? active.sessionCount : row.preview.sessionCount
-                const missedCount = active ? (active.missedCount || 0) : row.preview.missedCount
-                const total = active ? active.total : row.preview.total
-                const status = active?.status
-                return (
-                  <tr key={row.student.id}>
-                    <td><strong>{row.student.firstName} {row.student.lastName}</strong></td>
-                    <td>
-                      {sessionCount}
-                      {missedCount > 0 && (
-                        <div className="muted" style={{ fontSize: 12 }}>+{missedCount} missed (not billed)</div>
-                      )}
-                    </td>
-                    <td>{formatCurrency(total)}</td>
-                    <td>
-                      {status === 'paid' && <span className="badge badge-paid"><span className="badge-dot" />Paid</span>}
-                      {status === 'unpaid' && <span className="badge badge-unpaid"><span className="badge-dot" />Unpaid</span>}
-                      {!status && <span className="muted">Not yet invoiced</span>}
-                    </td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      {!active && <button className="btn btn-accent btn-sm" onClick={() => generate(row)}>Generate invoice</button>}
-                      {active && (
-                        <>
-                          <button className="btn btn-outline btn-sm" onClick={() => setViewing(active)}>View / Download</button>
-                          {active.status !== 'paid' && (
-                            <>{' '}<button className="btn btn-accent btn-sm" onClick={() => setMarkingPaid(active)}>Mark paid</button></>
-                          )}
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-              {filteredRows.length === 0 && (
-                <tr><td colSpan={5}><div className="empty-state">No sessions found for this month yet.</div></td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+          <div className="panel">
+            <div className="table-scroll">
+              <table className="ledger invoice-table">
+                <thead>
+                  <tr><th>Student</th><th>Month</th><th>Sessions</th><th>Amount</th><th>Waiting</th><th /></tr>
+                </thead>
+                <tbody>
+                  {outstanding.list.map((inv) => (
+                    <InvoiceRow
+                      key={inv.id}
+                      invoice={inv}
+                      showMonth
+                      waiting={isCurrentMonth(inv) ? null : differenceInCalendarDays(today, new Date(inv.year, inv.month + 1, 0))}
+                      onOpen={() => setViewing(inv)}
+                      onMarkPaid={() => setMarkingPaid(inv)}
+                    />
+                  ))}
+                  {outstanding.list.length === 0 && (
+                    <tr><td colSpan={6}><div className="empty-state">Nobody owes anything right now.</div></td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="cal-toolbar">
+            <div className="cal-nav">
+              <button onClick={() => shiftMonth(-1)} aria-label="Previous month">←</button>
+              <span className="cal-label">{monthLabel(cursor.year, cursor.month)}</span>
+              <button onClick={() => shiftMonth(1)} aria-label="Next month">→</button>
+              <button className="btn btn-outline btn-sm" onClick={() => setCursor({ year: today.getFullYear(), month: today.getMonth() })}>This month</button>
+            </div>
+          </div>
 
-      {viewing && (
-        <InvoiceView invoice={viewing} settings={settings} onClose={() => setViewing(null)} onMarkPaid={setMarkingPaid} />
+          <div className="stat-row">
+            <div className="stat-box"><div className="stat-label">Billed</div><div className="stat-value">{formatCurrency(monthTotals.billed)}</div></div>
+            <div className="stat-box"><div className="stat-label">Paid</div><div className="stat-value">{formatCurrency(monthTotals.paid)}</div></div>
+            <div className="stat-box"><div className="stat-label">Still owed</div><div className="stat-value">{formatCurrency(monthTotals.unpaid)}</div></div>
+          </div>
+
+          <div className="panel">
+            <div className="table-scroll">
+              <table className="ledger invoice-table">
+                <thead>
+                  <tr><th>Student</th><th>Sessions</th><th>Amount</th><th>Status</th><th /></tr>
+                </thead>
+                <tbody>
+                  {monthRows.map(({ student, invoice, preview }) => (
+                    invoice ? (
+                      <InvoiceRow
+                        key={student.id}
+                        invoice={invoice}
+                        showStatus
+                        onOpen={() => setViewing(invoice)}
+                        onMarkPaid={() => setMarkingPaid(invoice)}
+                      />
+                    ) : (
+                      <tr key={student.id} className="invoice-row-empty">
+                        <td><strong>{preview.studentName}</strong></td>
+                        <td><SessionSummary inv={preview} /></td>
+                        <td className="muted">—</td>
+                        <td><span className="muted">Nothing to bill</span></td>
+                        <td />
+                      </tr>
+                    )
+                  ))}
+                  {monthRows.length === 0 && (
+                    <tr><td colSpan={5}><div className="empty-state">No sessions for {monthLabel(cursor.year, cursor.month)}.</div></td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {liveViewing && (
+        <InvoiceView invoice={liveViewing} settings={settings} onClose={() => setViewing(null)} onMarkPaid={setMarkingPaid} />
       )}
       {markingPaid && (
-        <MarkPaidModal invoice={markingPaid} onClose={() => setMarkingPaid(null)} onConfirm={handleMarkPaid} />
+        <MarkPaidModal
+          invoice={markingPaid}
+          defaultMethod={studentById.get(markingPaid.studentId)?.paymentMethod}
+          onClose={() => setMarkingPaid(null)}
+          onConfirm={handleMarkPaid}
+        />
       )}
     </>
+  )
+}
+
+function SessionSummary({ inv }) {
+  return (
+    <>
+      {inv.sessionCount} attended
+      {inv.missedCount > 0 && <div className="muted">{inv.missedCount} missed, not billed</div>}
+      {inv.uncheckedWalkIns > 0 && (
+        <div className="walkin-note">
+          {inv.uncheckedWalkIns} walk-in{inv.uncheckedWalkIns > 1 ? 's' : ''}: check length on the calendar
+        </div>
+      )}
+    </>
+  )
+}
+
+// A whole row opens the invoice; Mark paid works straight from the row.
+function InvoiceRow({ invoice, showMonth, showStatus, waiting, onOpen, onMarkPaid }) {
+  const paid = invoice.status === 'paid'
+  const inProgress = invoice.year === new Date().getFullYear() && invoice.month === new Date().getMonth()
+  const stop = (fn) => (e) => { e.stopPropagation(); fn() }
+  return (
+    <tr className="invoice-row" onClick={onOpen}>
+      <td>
+        <button type="button" className="row-link" onClick={stop(onOpen)}>{invoice.studentName}</button>
+      </td>
+      {showMonth && <td>{monthLabel(invoice.year, invoice.month)}</td>}
+      <td><SessionSummary inv={invoice} /></td>
+      <td><strong>{formatCurrency(invoice.total)}</strong></td>
+      {showStatus && (
+        <td>
+          {paid
+            ? <span className="badge badge-paid"><span className="badge-dot" />Paid</span>
+            : <span className="badge badge-unpaid"><span className="badge-dot" />Unpaid</span>}
+          {!paid && inProgress && <div className="muted">Month in progress</div>}
+        </td>
+      )}
+      {!showStatus && (
+        <td>
+          {waiting == null
+            ? <span className="in-progress-tag">Month in progress</span>
+            : <span className={waiting > 30 ? 'overdue' : ''}>{waiting} {waiting === 1 ? 'day' : 'days'}</span>}
+        </td>
+      )}
+      <td className="row-actions">
+        {!paid && <button type="button" className="btn btn-accent btn-sm" onClick={stop(onMarkPaid)}>Mark paid</button>}
+        <button type="button" className="btn btn-outline btn-sm" onClick={stop(onOpen)}>Open</button>
+      </td>
+    </tr>
   )
 }

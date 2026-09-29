@@ -5,6 +5,9 @@ import { todayISO, nowStamp, bookingsOnDate, durationHours } from '../lib/helper
 import SignaturePad from '../components/SignaturePad'
 import Modal from '../components/Modal'
 
+// Stands in for a booked slot when the student picks "Extra session".
+const WALK_IN = 'walk-in'
+
 export default function Kiosk() {
   const [students, setStudents] = useState([])
   const [bookings, setBookings] = useState([])
@@ -39,6 +42,13 @@ export default function Kiosk() {
     return bookingsOnDate(bookings, todayISO()).filter((b) => b.studentIds?.includes(selected.id))
   }, [selected, bookings])
 
+  // With exactly one booking today there's nothing to choose, so pick it.
+  useEffect(() => {
+    if (todaysSlotsForStudent.length === 1 && !selectedSlot) setSelectedSlot(todaysSlotsForStudent[0])
+  }, [todaysSlotsForStudent, selectedSlot])
+
+  const isWalkIn = selectedSlot === WALK_IN || (walkInConfirmed && todaysSlotsForStudent.length === 0)
+
   const reset = () => {
     setSelected(null)
     setSelectedSlot(null)
@@ -52,12 +62,14 @@ export default function Kiosk() {
   const handleSubmit = async () => {
     if (!selected || sigRef.current.isEmpty()) return
     setError('')
+    if (!isWalkIn && !selectedSlot) return
     let slot = selectedSlot
 
     try {
-      // No pre-booked slot exists for this student today at all — log it on the
-      // calendar too (one-off, today only) so sign-ins and bookings stay in sync.
-      if (todaysSlotsForStudent.length === 0) {
+      // Not signing in for a booked slot (none today, or an extra session) —
+      // log a one-off 1-hour walk-in on the calendar so sign-ins and bookings
+      // stay in sync. The tutor adjusts its times there if it ran longer.
+      if (isWalkIn) {
         const now = new Date()
         const pad = (n) => String(n).padStart(2, '0')
         const startTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`
@@ -67,6 +79,8 @@ export default function Kiosk() {
         const newBooking = await addBooking({
           type: 'individual',
           title: '',
+          walkIn: true,
+          needsTimeCheck: true, // cleared when the tutor saves it on the calendar
           startTime,
           endTime,
           startDate: todayISO(),
@@ -177,11 +191,18 @@ export default function Kiosk() {
                         {slot.startTime}–{slot.endTime}
                       </button>
                     ))}
+                    <button
+                      type="button"
+                      className={`pill ${selectedSlot === WALK_IN ? 'active' : ''}`}
+                      onClick={() => setSelectedSlot(WALK_IN)}
+                    >
+                      Extra session (not booked)
+                    </button>
                   </div>
                 </div>
               )}
-              {walkInConfirmed && todaysSlotsForStudent.length === 0 && (
-                <p className="field-hint">Signing in for a 1-hour walk-in session, billed from now.</p>
+              {isWalkIn && (
+                <p className="field-hint">Signing in for a 1-hour walk-in session from now. It will be added to the calendar.</p>
               )}
 
               <div className="field">
@@ -192,7 +213,9 @@ export default function Kiosk() {
 
               {error && <p style={{ color: 'var(--red)' }}>{error}</p>}
 
-              <button className="btn btn-accent btn-block" onClick={handleSubmit}>Sign in</button>
+              <button className="btn btn-accent btn-block" onClick={handleSubmit} disabled={!isWalkIn && !selectedSlot}>
+                {!isWalkIn && !selectedSlot ? 'Choose your session above' : 'Sign in'}
+              </button>
             </div>
           </div>
         )}

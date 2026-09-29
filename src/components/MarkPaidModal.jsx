@@ -2,9 +2,13 @@ import { useState } from 'react'
 import { todayISO, formatCurrency, formatDate } from '../lib/helpers'
 import Modal from './Modal'
 
-export default function MarkPaidModal({ invoice, onClose, onConfirm }) {
+const METHODS = ['EFT', 'Card', 'Cash']
+
+// Pre-filled with today, the full amount and the student's usual payment
+// method, so the common case is a single "Confirm paid".
+export default function MarkPaidModal({ invoice, defaultMethod, onClose, onConfirm }) {
   const [date, setDate] = useState(todayISO())
-  const [method, setMethod] = useState('EFT')
+  const [method, setMethod] = useState(METHODS.includes(defaultMethod) ? defaultMethod : 'EFT')
   const [amount, setAmount] = useState(String(invoice.total))
   const [reference, setReference] = useState('')
 
@@ -53,9 +57,7 @@ export default function MarkPaidModal({ invoice, onClose, onConfirm }) {
         <div className="field">
           <label>Payment method</label>
           <select value={method} onChange={(e) => setMethod(e.target.value)}>
-            <option value="EFT">EFT</option>
-            <option value="Card">Card</option>
-            <option value="Cash">Cash</option>
+            {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
       </div>
