@@ -69,7 +69,14 @@ export default function MarkPaidModal({ invoice, defaultMethod, onClose, onConfi
             <tr key={i}>
               <td>{formatDate(li.date)}</td>
               <td>{li.label}</td>
-              <td>{formatCurrency(li.amount)}</td>
+              <td>{li.notBilled ? 'Not billed' : formatCurrency(li.amount)}</td>
+            </tr>
+          ))}
+          {(invoice.extraLines || []).map((x, i) => (
+            <tr key={`extra-${i}`}>
+              <td />
+              <td>{x.label}</td>
+              <td>{formatCurrency(x.amount)}</td>
             </tr>
           ))}
         </tbody>

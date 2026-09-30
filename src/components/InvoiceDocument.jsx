@@ -52,7 +52,11 @@ export default function InvoiceDocument({ invoice, settings }) {
               <td>{li.label}</td>
               <td>{li.durationHours}</td>
               <td>{formatCurrency(li.rate)}</td>
-              <td>{formatCurrency(li.amount)}</td>
+              <td>
+                {li.notBilled
+                  ? <span className="badge badge-paid"><span className="badge-dot" />Attended — not billed</span>
+                  : formatCurrency(li.amount)}
+              </td>
             </tr>
           ))}
           {(invoice.missedSessions || []).map((li, i) => (
@@ -62,6 +66,13 @@ export default function InvoiceDocument({ invoice, settings }) {
               <td>{li.durationHours}</td>
               <td>{formatCurrency(li.rate)}</td>
               <td><span className="badge badge-unpaid"><span className="badge-dot" />Missed — not billed</span></td>
+            </tr>
+          ))}
+          {(invoice.extraLines || []).map((x, i) => (
+            <tr key={`extra-${i}`}>
+              <td />
+              <td colSpan={3}>{x.label}</td>
+              <td>{formatCurrency(x.amount)}</td>
             </tr>
           ))}
           {invoice.lineItems.length === 0 && (invoice.missedSessions || []).length === 0 && (

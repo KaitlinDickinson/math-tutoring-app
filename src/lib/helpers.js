@@ -26,10 +26,51 @@ export function nowStamp() {
   return new Date().toISOString()
 }
 
-/** Hours for a sign-in: its calendar booking's length, or what was stored at check-in if that booking is gone. */
+/**
+ * Hours for a sign-in: a manual override set on that one lesson, else its
+ * calendar booking's length, else what was stored at check-in (booking gone).
+ */
 export function sessionHours(session, booking) {
+  if (session.hoursOverride != null) return session.hoursOverride
   return booking ? durationHours(booking.startTime, booking.endTime) : (session.durationHours || 1)
 }
+
+/**
+ * Works out which calendar booking each sign-in belongs to, as a Map of
+ * session id -> booking. Older kiosk versions let a student sign in without
+ * choosing their session, leaving no bookingId; those are matched to the
+ * student's booking that same day that no other sign-in has claimed.
+ * Sessions added as extras on an invoice (`standalone`) are never matched.
+ */
+export function linkSessionsToBookings(sessions, bookings) {
+  const byId = new Map((bookings || []).map((b) => [b.id, b]))
+  const links = new Map()
+  const claimed = new Set()
+  const claimKey = (s, b) => `${s.studentId}|${s.date}|${b.id}`
+
+  sessions.forEach((s) => {
+    const b = s.bookingId && byId.get(s.bookingId)
+    if (!b) return
+    links.set(s.id, b)
+    claimed.add(claimKey(s, b))
+  })
+
+  sessions
+    .filter((s) => !s.bookingId && !s.standalone)
+    .sort((a, b) => (a.checkInTime || '').localeCompare(b.checkInTime || ''))
+    .forEach((s) => {
+      const b = bookingsOnDate(bookings || [], s.date)
+        .find((bk) => bk.studentIds?.includes(s.studentId) && !claimed.has(claimKey(s, bk)))
+      if (!b) return
+      links.set(s.id, b)
+      claimed.add(claimKey(s, b))
+    })
+
+  return links
+}
+
+export const bookingRate = (booking, student) =>
+  (booking?.ratesOverride && booking.ratesOverride[student.id]) ?? student.hourlyRate ?? 0
 
 export function sessionLabel(booking, fallbackTitle, fallbackType) {
   if (booking?.walkIn) return 'Walk-in session'
@@ -49,11 +90,15 @@ export function sessionLabel(booking, fallbackTitle, fallbackType) {
  * Also compares against the student's calendar bookings for the month so
  * admin can see booked-but-not-signed-in sessions — these are never billed,
  * just surfaced for transparency.
+ *
+ * Manual edits from the invoice editor live on the sign-ins themselves
+ * (hoursOverride, rate, notBilled), plus `extraLines` ({ label, amount }) —
+ * charges or discounts stored on the invoice and passed back in here.
  */
-export function buildMonthlyInvoice(student, sessions, bookings, year, month) {
-  const bookingById = new Map((bookings || []).map((b) => [b.id, b]))
-  const monthSessions = sessions
-    .filter((s) => s.studentId === student.id)
+export function buildMonthlyInvoice(student, sessions, bookings, year, month, extraLines = []) {
+  const studentSessions = sessions.filter((s) => s.studentId === student.id)
+  const links = linkSessionsToBookings(studentSessions, bookings)
+  const monthSessions = studentSessions
     .filter((s) => {
       const d = parseISO(s.date)
       return d.getFullYear() === year && d.getMonth() === month
@@ -62,22 +107,25 @@ export function buildMonthlyInvoice(student, sessions, bookings, year, month) {
 
   let uncheckedWalkIns = 0
   const lineItems = monthSessions.map((s) => {
-    const booking = s.bookingId ? bookingById.get(s.bookingId) : null
+    const booking = links.get(s.id) || null
     const hours = sessionHours(s, booking)
     const rate = s.rate ?? student.hourlyRate ?? 0
     if (booking?.walkIn && booking.needsTimeCheck) uncheckedWalkIns += 1
     return {
+      sessionId: s.id ?? null,
       date: s.date,
       label: sessionLabel(booking, s.bookingTitle, s.sessionType),
       durationHours: hours,
       rate,
-      amount: hours * rate
+      notBilled: !!s.notBilled,
+      amount: s.notBilled ? 0 : hours * rate
     }
   })
 
-  const total = lineItems.reduce((sum, li) => sum + li.amount, 0)
+  const extras = (extraLines || []).map((x) => ({ label: x.label || '', amount: Number(x.amount) || 0 }))
+  const total = lineItems.reduce((sum, li) => sum + li.amount, 0) + extras.reduce((sum, x) => sum + x.amount, 0)
 
-  const missedSessions = findMissedSessions(student, bookings, monthSessions, year, month)
+  const missedSessions = findMissedSessions(student, bookings, monthSessions, links, year, month)
 
   return {
     studentId: student.id,
@@ -86,6 +134,7 @@ export function buildMonthlyInvoice(student, sessions, bookings, year, month) {
     year,
     month,
     lineItems,
+    extraLines: extras,
     sessionCount: lineItems.length,
     uncheckedWalkIns,
     missedSessions,
@@ -109,7 +158,7 @@ export function monthsWithSessions(sessions, studentId) {
  * for this student in the given month that have no matching signed-in
  * session for that exact booking + date.
  */
-function findMissedSessions(student, bookings, monthSessions, year, month) {
+function findMissedSessions(student, bookings, monthSessions, links, year, month) {
   const todayIso = todayISO()
   const monthStart = new Date(year, month, 1)
   const monthEnd = new Date(year, month + 1, 0)
@@ -122,13 +171,14 @@ function findMissedSessions(student, bookings, monthSessions, year, month) {
       const iso = format(d, 'yyyy-MM-dd')
       if (iso > todayIso) continue
       if (!occursOnDate(booking, iso)) continue
-      const attended = monthSessions.some((s) => s.bookingId === booking.id && s.date === iso)
+      const attended = monthSessions.some((s) => links.get(s.id)?.id === booking.id && s.date === iso)
       if (attended) continue
       missed.push({
+        bookingId: booking.id,
         date: iso,
         label: sessionLabel(booking),
         durationHours: durationHours(booking.startTime, booking.endTime),
-        rate: (booking.ratesOverride && booking.ratesOverride[student.id]) ?? student.hourlyRate ?? 0
+        rate: bookingRate(booking, student)
       })
     }
   }
@@ -295,10 +345,10 @@ export function exportInvoicesCSV(invoices) {
  */
 export function exportAttendanceCSV(sessions, students, bookings, filename = `attendance-${todayISO()}.csv`) {
   const studentOf = (id) => students.find((s) => s.id === id)
-  const bookingOf = (id) => (id ? bookings.find((b) => b.id === id) : null)
+  const links = linkSessionsToBookings(sessions, bookings)
   const rows = sessions.map((s) => {
     const st = studentOf(s.studentId)
-    const booking = bookingOf(s.bookingId)
+    const booking = links.get(s.id) || null
     return {
       Date: s.date,
       Time: formatTime(s.checkInTime),
@@ -316,6 +366,7 @@ export function exportAttendanceCSV(sessions, students, bookings, filename = `at
       Session: sessionLabel(booking, s.bookingTitle, s.sessionType),
       DurationHours: sessionHours(s, booking),
       RateCharged: s.rate,
+      Billed: s.notBilled ? 'No' : 'Yes',
       Signed: s.signature ? 'Yes' : 'No'
     }
   })

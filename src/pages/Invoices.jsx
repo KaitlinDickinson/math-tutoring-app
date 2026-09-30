@@ -8,6 +8,7 @@ import {
 } from '../lib/helpers'
 import InvoiceView from '../components/InvoiceView'
 import MarkPaidModal from '../components/MarkPaidModal'
+import InvoiceEditor from '../components/InvoiceEditor'
 
 const TABS = [
   { key: 'outstanding', label: 'Outstanding' },
@@ -17,7 +18,7 @@ const TABS = [
 const keyOf = (studentId, year, month) => `${studentId}-${year}-${month}`
 
 // Fields that come from sessions + bookings; kept in sync on unpaid invoices.
-const SYNCED_FIELDS = ['studentName', 'accountable', 'lineItems', 'sessionCount', 'missedSessions', 'missedCount', 'uncheckedWalkIns', 'total']
+const SYNCED_FIELDS = ['studentName', 'accountable', 'lineItems', 'extraLines', 'sessionCount', 'missedSessions', 'missedCount', 'uncheckedWalkIns', 'total']
 const syncedSnapshot = (inv) => JSON.stringify(SYNCED_FIELDS.map((f) => inv[f] ?? null))
 
 export default function Invoices() {
@@ -31,6 +32,7 @@ export default function Invoices() {
   const [cursor, setCursor] = useState({ year: today.getFullYear(), month: today.getMonth() })
   const [viewing, setViewing] = useState(null)
   const [markingPaid, setMarkingPaid] = useState(null)
+  const [editing, setEditing] = useState(null) // { studentId, year, month }
   const creating = useRef(new Set())
 
   useEffect(() => {
@@ -67,7 +69,8 @@ export default function Invoices() {
       invoiceByKey.forEach((inv) => { if (inv.studentId === student.id) months.add(`${inv.year}-${inv.month}`) })
       months.forEach((ym) => {
         const [y, m] = ym.split('-').map(Number)
-        map.set(keyOf(student.id, y, m), buildMonthlyInvoice(student, sessions, bookings, y, m))
+        const k = keyOf(student.id, y, m)
+        map.set(k, buildMonthlyInvoice(student, sessions, bookings, y, m, invoiceByKey.get(k)?.extraLines))
       })
     })
     return map
@@ -113,7 +116,7 @@ export default function Invoices() {
       .map((student) => {
         const k = keyOf(student.id, year, month)
         const invoice = invoiceByKey.get(k)
-        const preview = previewByKey.get(k) || buildMonthlyInvoice(student, sessions, bookings, year, month)
+        const preview = previewByKey.get(k) || buildMonthlyInvoice(student, sessions, bookings, year, month, invoice?.extraLines)
         return { student, invoice, preview }
       })
       .filter((r) => r.invoice || r.preview.sessionCount > 0 || r.preview.missedCount > 0)
@@ -207,6 +210,7 @@ export default function Invoices() {
                       waiting={isCurrentMonth(inv) ? null : differenceInCalendarDays(today, new Date(inv.year, inv.month + 1, 0))}
                       onOpen={() => setViewing(inv)}
                       onMarkPaid={() => setMarkingPaid(inv)}
+                      onEdit={() => setEditing({ studentId: inv.studentId, year: inv.year, month: inv.month })}
                     />
                   ))}
                   {outstanding.list.length === 0 && (
@@ -249,6 +253,7 @@ export default function Invoices() {
                         showStatus
                         onOpen={() => setViewing(invoice)}
                         onMarkPaid={() => setMarkingPaid(invoice)}
+                        onEdit={() => setEditing({ studentId: student.id, year: cursor.year, month: cursor.month })}
                       />
                     ) : (
                       <tr key={student.id} className="invoice-row-empty">
@@ -256,7 +261,9 @@ export default function Invoices() {
                         <td><SessionSummary inv={preview} /></td>
                         <td className="muted">—</td>
                         <td><span className="muted">Nothing to bill</span></td>
-                        <td />
+                        <td className="row-actions">
+                          <EditButton onClick={() => setEditing({ studentId: student.id, year: cursor.year, month: cursor.month })} />
+                        </td>
                       </tr>
                     )
                   ))}
@@ -282,6 +289,17 @@ export default function Invoices() {
           onMarkUnpaid={handleMarkUnpaid}
         />
       )}
+      {editing && studentById.get(editing.studentId) && (
+        <InvoiceEditor
+          student={studentById.get(editing.studentId)}
+          year={editing.year}
+          month={editing.month}
+          invoice={invoiceByKey.get(keyOf(editing.studentId, editing.year, editing.month)) || null}
+          sessions={sessions}
+          bookings={bookings}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </>
   )
 }
@@ -301,7 +319,18 @@ function SessionSummary({ inv }) {
 }
 
 // A whole row opens the invoice; Mark paid works straight from the row.
-function InvoiceRow({ invoice, showMonth, showStatus, waiting, onOpen, onMarkPaid }) {
+function EditButton({ onClick }) {
+  return (
+    <button type="button" className="btn btn-outline btn-sm btn-icon" onClick={onClick} aria-label="Edit invoice" title="Edit invoice">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+    </button>
+  )
+}
+
+function InvoiceRow({ invoice, showMonth, showStatus, waiting, onOpen, onMarkPaid, onEdit }) {
   const paid = invoice.status === 'paid'
   const inProgress = invoice.year === new Date().getFullYear() && invoice.month === new Date().getMonth()
   const stop = (fn) => (e) => { e.stopPropagation(); fn() }
@@ -329,6 +358,7 @@ function InvoiceRow({ invoice, showMonth, showStatus, waiting, onOpen, onMarkPai
         </td>
       )}
       <td className="row-actions">
+        {!paid && <EditButton onClick={stop(onEdit)} />}
         {paid
           ? <button type="button" className="btn btn-outline btn-sm" onClick={stop(onMarkPaid)}>Edit payment</button>
           : <button type="button" className="btn btn-accent btn-sm" onClick={stop(onMarkPaid)}>Mark paid</button>}

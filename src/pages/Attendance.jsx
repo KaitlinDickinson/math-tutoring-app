@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listenStudents, listenSessions, listenBookings, addSession, updateSession, deleteSession } from '../lib/db'
 import {
-  formatDate, formatTime, formatCurrency, monthLabel, exportAttendanceCSV, sessionHours, sessionLabel
+  formatDate, formatTime, formatCurrency, monthLabel, exportAttendanceCSV, sessionHours, sessionLabel,
+  linkSessionsToBookings
 } from '../lib/helpers'
 import Modal from '../components/Modal'
 import SessionForm from '../components/SessionForm'
@@ -27,15 +28,19 @@ export default function Attendance() {
   }, [])
 
   const studentOf = (id) => students.find((s) => s.id === id)
-  const bookingOf = (id) => (id ? bookings.find((b) => b.id === id) : null)
+  // Same session -> booking matching the invoices use, so hours always agree.
+  const links = useMemo(() => linkSessionsToBookings(sessions, bookings), [sessions, bookings])
+  const bookingFor = (s) => links.get(s.id) || null
 
   const shiftMonth = (delta) => setCursor(({ year, month }) => {
     const d = new Date(year, month + delta, 1)
     return { year: d.getFullYear(), month: d.getMonth() }
   })
 
+  // Hours typed here apply to that one lesson, overriding the calendar length.
   const handleSave = async (data) => {
-    if (modal === 'add') await addSession(data)
+    if (modal === 'add') await addSession({ ...data, hoursOverride: data.durationHours })
+    else if (data.durationHours !== sessionHours(modal, bookingFor(modal))) await updateSession(modal.id, { ...data, hoursOverride: data.durationHours })
     else await updateSession(modal.id, data)
     setModal(null)
   }
@@ -167,8 +172,11 @@ export default function Attendance() {
                       <div className="muted">{formatCurrency(st?.hourlyRate)}/hr default</div>
                     </td>
                     <td>
-                      {sessionLabel(bookingOf(s.bookingId), s.bookingTitle, s.sessionType)}
-                      <div className="muted">{sessionHours(s, bookingOf(s.bookingId))}h @ {formatCurrency(s.rate)}</div>
+                      {sessionLabel(bookingFor(s), s.bookingTitle, s.sessionType)}
+                      <div className="muted">
+                        {sessionHours(s, bookingFor(s))}h @ {formatCurrency(s.rate)}
+                        {s.notBilled && ', not billed'}
+                      </div>
                     </td>
                     <td className="no-print" style={{ whiteSpace: 'nowrap' }}>
                       <button className="btn btn-outline btn-sm" onClick={() => setModal(s)}>Edit</button>{' '}
@@ -190,7 +198,7 @@ export default function Attendance() {
       {modal && (
         <Modal title={modal === 'add' ? 'Add attendance' : 'Edit sign-in'} onClose={() => setModal(null)} width={480}>
           <SessionForm
-            initial={modal === 'add' ? null : modal}
+            initial={modal === 'add' ? null : { ...modal, durationHours: sessionHours(modal, bookingFor(modal)) }}
             students={students}
             onSubmit={handleSave}
             onCancel={() => setModal(null)}

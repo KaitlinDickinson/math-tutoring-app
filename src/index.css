@@ -569,6 +569,33 @@ table.ledger tr:hover td { background: #fafbf9; }
 .in-progress-tag { font-size: 12px; font-weight: 600; color: var(--accent); }
 .overdue { color: var(--red); font-weight: 600; }
 .invoice-row-empty td { color: var(--ink-faint); }
+.btn-icon { padding: 6px 8px; color: var(--ink-soft); }
+.btn-icon:hover { color: var(--accent); border-color: var(--accent); }
+
+/* Invoice editor */
+.editor-table td { vertical-align: middle; }
+.editor-table input {
+  width: 100%;
+  min-width: 70px;
+  padding: 7px 8px;
+  border: 1px solid #cdd3de;
+  border-radius: var(--radius);
+  background: var(--white);
+  color: var(--ink);
+  font-size: 14px;
+}
+.editor-table input[type="date"] { min-width: 140px; }
+.editor-table input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.editor-table input:disabled { background: #f4f5f3; color: var(--ink-faint); }
+.editor-table tr.is-removed td { color: var(--ink-faint); text-decoration: line-through; }
+.editor-table tr.is-removed .editor-actions { text-decoration: none; }
+.editor-table tr.is-missed td { color: var(--ink-faint); }
+.editor-table tr.is-added td { background: #fafcfb; }
+.editor-actions { white-space: nowrap; text-align: right; }
+.editor-actions .checkbox-row { display: inline-flex; font-size: 12.5px; margin-right: 8px; }
+.editor-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.editor-total { margin-right: auto; font-size: 15px; color: var(--ink-soft); }
+.editor-total strong { color: var(--ink); }
 
 .day-view { display: flex; flex-direction: column; gap: 10px; }
 .day-slot {
