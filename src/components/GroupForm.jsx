@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 // Name a group and tick its students; the list narrows as you search, and
 // ticked students stay ticked while you search for the next one.
@@ -12,13 +12,29 @@ export default function GroupForm({ initial, students, onSubmit, onCancel }) {
     .sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`))
     .filter((s) => !q || `${s.firstName} ${s.lastName}`.toLowerCase().includes(q))
 
-  const toggle = (id) => setStudentIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))
+  // After ticking someone found by searching, empty the search box and put
+  // the cursor back in it, ready to type the next name.
+  const searchRef = useRef(null)
+  const readyForNextSearch = () => {
+    if (!q) return
+    setQuery('')
+    searchRef.current?.focus()
+  }
+
+  const toggle = (id) => {
+    const adding = !studentIds.includes(id)
+    setStudentIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))
+    if (adding) readyForNextSearch()
+  }
   const allVisibleTicked = visible.length > 0 && visible.every((s) => studentIds.includes(s.id))
-  const toggleAllVisible = () => setStudentIds((ids) => (
-    allVisibleTicked
-      ? ids.filter((id) => !visible.some((s) => s.id === id))
-      : [...new Set([...ids, ...visible.map((s) => s.id)])]
-  ))
+  const toggleAllVisible = () => {
+    setStudentIds((ids) => (
+      allVisibleTicked
+        ? ids.filter((id) => !visible.some((s) => s.id === id))
+        : [...new Set([...ids, ...visible.map((s) => s.id)])]
+    ))
+    if (!allVisibleTicked) readyForNextSearch()
+  }
 
   const submit = (e) => {
     e.preventDefault()
@@ -38,6 +54,7 @@ export default function GroupForm({ initial, students, onSubmit, onCancel }) {
         <div className="search-wrap" style={{ marginBottom: 8 }}>
           <span className="search-icon">🔍</span>
           <input
+            ref={searchRef}
             placeholder="Search students…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

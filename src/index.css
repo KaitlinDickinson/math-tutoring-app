@@ -181,6 +181,17 @@ input, select, textarea {
 }
 .sidebar nav a:hover { background: rgba(255,255,255,0.06); color: var(--white); }
 .sidebar nav a.active { background: var(--accent); color: var(--white); }
+/* A section with sub-pages: heading lit while inside it, sub-links indented */
+.sidebar nav a.section-active { color: var(--white); font-weight: 600; }
+.sidebar .nav-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 4px 12px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+}
+.sidebar .nav-sub a { padding: 7px 12px; font-size: 13.5px; }
 .sidebar .sidebar-footer { margin-top: auto; padding: 12px 20px 0; }
 
 .main-content {
@@ -231,6 +242,9 @@ input, select, textarea {
   border-radius: var(--radius);
 }
 .mobile-nav a.active { background: var(--accent); border-color: var(--accent); }
+/* On phones the sub-pages sit in the row of buttons like any other page */
+.mobile-nav .nav-section, .mobile-nav .nav-sub { display: contents; }
+.mobile-nav .nav-section > a { display: none; }
 
 @media (max-width: 900px) {
   .sidebar { display: none; }

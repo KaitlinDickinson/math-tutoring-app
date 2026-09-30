@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { listenStudents, addStudent, updateStudent, deleteStudent, bulkUpdateStudents, listenSettings, saveSettings } from '../lib/db'
 import { formatCurrency, exportStudentsCSV } from '../lib/helpers'
 import Modal from '../components/Modal'
@@ -42,7 +43,12 @@ export default function Students() {
   const [overKey, setOverKey] = useState(null)
   const [modal, setModal] = useState(null) // null | 'add' | student object (edit)
   const [confirmDelete, setConfirmDelete] = useState(null)
-  const [tab, setTab] = useState('students')
+  // The tab lives in the address (/admin/students or /admin/students/groups)
+  // so the sidebar's sub-links and these tabs always agree.
+  const location = useLocation()
+  const navigate = useNavigate()
+  const tab = location.pathname.endsWith('/groups') ? 'groups' : 'students'
+  const setTab = (t) => navigate(t === 'groups' ? '/admin/students/groups' : '/admin/students')
   const rolloverRan = useRef(false)
 
   useEffect(() => {

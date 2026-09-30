@@ -44,7 +44,14 @@ function AdminLayout({ children }) {
   if (!access) return <NoAccess email={user.email} />
 
   const links = [
-    { to: '/admin/students', label: 'Students' },
+    {
+      to: '/admin/students',
+      label: 'Students',
+      children: [
+        { to: '/admin/students', label: 'Students', end: true },
+        { to: '/admin/students/groups', label: 'Groups' }
+      ]
+    },
     { to: '/admin/calendar', label: 'Calendar' },
     { to: '/admin/attendance', label: 'Attendance' },
     { to: '/admin/invoices', label: 'Invoices' },
@@ -64,11 +71,7 @@ function AdminLayout({ children }) {
       <aside className="sidebar">
         <div className="brand">The Ledger<span>Tutoring admin</span></div>
         <nav>
-          {links.map((l) => (
-            <NavLink key={l.to} to={l.to} className={({ isActive }) => (isActive ? 'active' : '')}>
-              {l.label}
-            </NavLink>
-          ))}
+          <NavItems links={links} />
         </nav>
         <div className="sidebar-footer">
           <button className="btn btn-outline btn-block" style={{ color: '#dbe1ee', borderColor: 'rgba(255,255,255,0.25)' }} onClick={handleLogout}>
@@ -83,17 +86,39 @@ function AdminLayout({ children }) {
           <button onClick={() => setNavOpen((v) => !v)}>Menu</button>
         </div>
         <div className={`mobile-nav ${navOpen ? 'open' : ''}`}>
-          {links.map((l) => (
-            <NavLink key={l.to} to={l.to} className={({ isActive }) => (isActive ? 'active' : '')} onClick={() => setNavOpen(false)}>
-              {l.label}
-            </NavLink>
-          ))}
+          <NavItems links={links} onNavigate={() => setNavOpen(false)} />
           <a href="#" onClick={handleLogout}>Log out</a>
         </div>
         <main className="main-content">{children}</main>
       </div>
     </div>
   )
+}
+
+// Menu links; a section with sub-pages shows them indented underneath.
+// The section heading stays lit while you're on any of its sub-pages, and the
+// sub-page you're on gets the full highlight.
+function NavItems({ links, onNavigate }) {
+  return links.map((l) => (
+    l.children ? (
+      <div key={l.to} className="nav-section">
+        <NavLink to={l.children[0].to} end={false} className={({ isActive }) => (isActive ? 'section-active' : '')} onClick={onNavigate}>
+          {l.label}
+        </NavLink>
+        <div className="nav-sub">
+          {l.children.map((c) => (
+            <NavLink key={c.to} to={c.to} end={c.end} className={({ isActive }) => (isActive ? 'active' : '')} onClick={onNavigate}>
+              {c.label}
+            </NavLink>
+          ))}
+        </div>
+      </div>
+    ) : (
+      <NavLink key={l.to} to={l.to} className={({ isActive }) => (isActive ? 'active' : '')} onClick={onNavigate}>
+        {l.label}
+      </NavLink>
+    )
+  ))
 }
 
 function NoAccess({ email }) {
@@ -123,6 +148,7 @@ export default function App() {
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin" element={<Navigate to="/admin/students" replace />} />
         <Route path="/admin/students" element={<AdminLayout><Students /></AdminLayout>} />
+        <Route path="/admin/students/groups" element={<AdminLayout><Students /></AdminLayout>} />
         <Route path="/admin/calendar" element={<AdminLayout><CalendarPage /></AdminLayout>} />
         <Route path="/admin/attendance" element={<AdminLayout><Attendance /></AdminLayout>} />
         <Route path="/admin/invoices" element={<AdminLayout><Invoices /></AdminLayout>} />
