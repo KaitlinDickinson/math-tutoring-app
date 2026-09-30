@@ -75,9 +75,9 @@ export default function InvoiceView({ invoice, settings, onClose, onMarkPaid }) 
           </div>
         )}
         <div className="modal-footer no-print">
-          {invoice.status !== 'paid' && (
-            <button className="btn btn-accent" onClick={() => onMarkPaid(invoice)}>Mark as paid</button>
-          )}
+          {invoice.status === 'paid'
+            ? <button className="btn btn-outline" onClick={() => onMarkPaid(invoice)}>Edit payment</button>
+            : <button className="btn btn-accent" onClick={() => onMarkPaid(invoice)}>Mark as paid</button>}
           <button className="btn btn-whatsapp" onClick={handleWhatsApp} disabled={!pdf}>
             {pdf || pdfError ? 'Send on WhatsApp' : 'Preparing PDF…'}
           </button>

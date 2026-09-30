@@ -4,29 +4,59 @@ import Modal from './Modal'
 
 const METHODS = ['EFT', 'Card', 'Cash']
 
-// Pre-filled with today, the full amount and the student's usual payment
-// method, so the common case is a single "Confirm paid".
-export default function MarkPaidModal({ invoice, defaultMethod, onClose, onConfirm }) {
-  const [date, setDate] = useState(todayISO())
-  const [method, setMethod] = useState(METHODS.includes(defaultMethod) ? defaultMethod : 'EFT')
-  const [amount, setAmount] = useState(String(invoice.total))
-  const [reference, setReference] = useState('')
+// New payments are pre-filled with today, the full amount and the student's
+// usual payment method, so the common case is a single "Confirm paid".
+// For an invoice that's already paid, the form opens with what was recorded
+// so mistakes can be corrected, or the payment undone with "Mark as unpaid".
+export default function MarkPaidModal({ invoice, defaultMethod, onClose, onConfirm, onMarkUnpaid }) {
+  const editing = invoice.status === 'paid'
+  const [date, setDate] = useState(editing && invoice.paidDate ? invoice.paidDate : todayISO())
+  const [method, setMethod] = useState(() => {
+    const m = editing ? invoice.paidMethod : defaultMethod
+    return METHODS.includes(m) ? m : 'EFT'
+  })
+  const [amount, setAmount] = useState(String(editing ? (invoice.amountPaid ?? invoice.total) : invoice.total))
+  const [reference, setReference] = useState(editing ? invoice.paidReference || '' : '')
+  const [confirmUnpaid, setConfirmUnpaid] = useState(false)
 
   const amountPaid = Number(amount) || 0
   const diff = amountPaid - invoice.total
 
+  if (confirmUnpaid) {
+    return (
+      <Modal
+        title="Mark as unpaid?"
+        onClose={() => setConfirmUnpaid(false)}
+        footer={<>
+          <button className="btn btn-outline" onClick={() => setConfirmUnpaid(false)}>Keep as paid</button>
+          <button className="btn btn-danger" onClick={onMarkUnpaid}>Mark as unpaid</button>
+        </>}
+      >
+        <p>
+          This removes the payment recorded for {invoice.studentName}'s invoice and moves it back to Outstanding.
+          It will also update again from sign-ins and the calendar.
+        </p>
+      </Modal>
+    )
+  }
+
   return (
     <Modal
-      title={`Mark ${invoice.studentName}'s invoice as paid`}
+      title={editing ? `Edit payment for ${invoice.studentName}` : `Mark ${invoice.studentName}'s invoice as paid`}
       onClose={onClose}
       width={560}
       footer={<>
+        {editing && onMarkUnpaid && (
+          <button className="btn btn-outline" style={{ color: 'var(--red)', marginRight: 'auto' }} onClick={() => setConfirmUnpaid(true)}>
+            Mark as unpaid
+          </button>
+        )}
         <button className="btn btn-outline" onClick={onClose}>Cancel</button>
         <button
           className="btn btn-accent"
           onClick={() => onConfirm({ paidDate: date, paidMethod: method, amountPaid, paidReference: reference })}
         >
-          Confirm paid
+          {editing ? 'Save changes' : 'Confirm paid'}
         </button>
       </>}
     >
@@ -46,7 +76,7 @@ export default function MarkPaidModal({ invoice, defaultMethod, onClose, onConfi
       </table>
 
       <div style={{ textAlign: 'right', marginBottom: 16 }}>
-        <strong>Total outstanding: {formatCurrency(invoice.total)}</strong>
+        <strong>{editing ? 'Invoice total' : 'Total outstanding'}: {formatCurrency(invoice.total)}</strong>
       </div>
 
       <div className="field-row">

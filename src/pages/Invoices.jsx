@@ -137,9 +137,17 @@ export default function Invoices() {
   })
 
   const handleMarkPaid = async ({ paidDate, paidMethod, amountPaid, paidReference }) => {
+    const wasPaid = markingPaid.status === 'paid'
     await updateInvoice(markingPaid.id, { status: 'paid', paidDate, paidMethod, amountPaid, paidReference })
     setMarkingPaid(null)
-    setViewing(null)
+    if (!wasPaid) setViewing(null) // after an edit, stay on the invoice to see the correction
+  }
+
+  // Undo a payment recorded by mistake; the invoice goes back to Outstanding
+  // and resumes syncing with sign-ins and the calendar.
+  const handleMarkUnpaid = async () => {
+    await updateInvoice(markingPaid.id, { status: 'unpaid', paidDate: null, paidMethod: null, amountPaid: null, paidReference: null })
+    setMarkingPaid(null)
   }
 
   // Always show the live saved copy, so the open invoice updates with syncs.
@@ -271,6 +279,7 @@ export default function Invoices() {
           defaultMethod={studentById.get(markingPaid.studentId)?.paymentMethod}
           onClose={() => setMarkingPaid(null)}
           onConfirm={handleMarkPaid}
+          onMarkUnpaid={handleMarkUnpaid}
         />
       )}
     </>
@@ -320,7 +329,9 @@ function InvoiceRow({ invoice, showMonth, showStatus, waiting, onOpen, onMarkPai
         </td>
       )}
       <td className="row-actions">
-        {!paid && <button type="button" className="btn btn-accent btn-sm" onClick={stop(onMarkPaid)}>Mark paid</button>}
+        {paid
+          ? <button type="button" className="btn btn-outline btn-sm" onClick={stop(onMarkPaid)}>Edit payment</button>
+          : <button type="button" className="btn btn-accent btn-sm" onClick={stop(onMarkPaid)}>Mark paid</button>}
         <button type="button" className="btn btn-outline btn-sm" onClick={stop(onOpen)}>Open</button>
       </td>
     </tr>
