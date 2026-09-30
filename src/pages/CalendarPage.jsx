@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addMonths, addWeeks, format, isSameMonth, isToday
 } from 'date-fns'
-import { listenStudents, listenBookings, addBooking, updateBooking, deleteBooking } from '../lib/db'
+import { listenStudents, listenBookings, listenGroups, addBooking, updateBooking, deleteBooking } from '../lib/db'
 import { bookingsOnDate } from '../lib/helpers'
 import Modal from '../components/Modal'
 import BookingForm from '../components/BookingForm'
@@ -14,13 +14,16 @@ export default function CalendarPage() {
   const [cursor, setCursor] = useState(new Date())
   const [students, setStudents] = useState([])
   const [bookings, setBookings] = useState([])
+  const [groups, setGroups] = useState([])
   const [modal, setModal] = useState(null) // null | 'add' | booking (edit)
   const [confirmDelete, setConfirmDelete] = useState(null)
 
   useEffect(() => {
     const u1 = listenStudents(setStudents)
     const u2 = listenBookings(setBookings)
-    return () => { u1(); u2() }
+    // Groups are optional here: if they can't load, the form works without them.
+    const u3 = listenGroups(setGroups, () => setGroups([]))
+    return () => { u1(); u2(); u3() }
   }, [])
 
   const dateISO = format(cursor, 'yyyy-MM-dd')
@@ -123,6 +126,7 @@ export default function CalendarPage() {
           <BookingForm
             initial={modal === 'add' ? null : modal}
             students={students}
+            groups={groups}
             defaultDate={dateISO}
             onSubmit={handleSave}
             onCancel={() => setModal(null)}

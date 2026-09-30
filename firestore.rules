@@ -51,6 +51,11 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // Student groups (shortcuts for filling in bookings): admins only.
+    match /groups/{groupId} {
+      allow read, write: if isAdmin();
+    }
+
     // Invoices and settings: admins only.
     match /invoices/{invoiceId} {
       allow read, write: if isAdmin();

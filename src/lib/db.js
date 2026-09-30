@@ -4,11 +4,11 @@ import {
 import { db } from '../firebase'
 
 function liveCollection(name, order) {
-  return (callback) => {
+  return (callback, onError) => {
     const q = order ? query(collection(db, name), orderBy(order)) : collection(db, name)
     return onSnapshot(q, (snap) => {
       callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    })
+    }, onError)
   }
 }
 
@@ -35,6 +35,13 @@ export const listenBookings = liveCollection('bookings')
 export const addBooking = (data) => addDoc(collection(db, 'bookings'), data)
 export const updateBooking = (id, data) => updateDoc(doc(db, 'bookings', id), data)
 export const deleteBooking = (id) => deleteDoc(doc(db, 'bookings', id))
+
+// ---------- Student groups ({ name, studentIds }) ----------
+// Only used to fill in a booking's students quickly; bookings keep their own copy.
+export const listenGroups = liveCollection('groups', 'name')
+export const addGroup = (data) => addDoc(collection(db, 'groups'), data)
+export const updateGroup = (id, data) => updateDoc(doc(db, 'groups', id), data)
+export const deleteGroup = (id) => deleteDoc(doc(db, 'groups', id))
 
 // ---------- Invoices ----------
 export const listenInvoices = liveCollection('invoices')

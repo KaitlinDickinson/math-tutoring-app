@@ -5,7 +5,7 @@ const DAYS = [
   { v: 4, l: 'Thu' }, { v: 5, l: 'Fri' }, { v: 6, l: 'Sat' }
 ]
 
-export default function BookingForm({ initial, students, defaultDate, onSubmit, onCancel }) {
+export default function BookingForm({ initial, students, groups = [], defaultDate, onSubmit, onCancel }) {
   const [form, setForm] = useState(() => initial || {
     type: 'individual',
     title: '',
@@ -33,6 +33,18 @@ export default function BookingForm({ initial, students, defaultDate, onSubmit, 
       const has = f.studentIds.includes(id)
       const studentIds = has ? f.studentIds.filter((x) => x !== id) : [...f.studentIds, id]
       return { ...f, studentIds }
+    })
+  }
+
+  // Ticks every (still registered) student in the group, keeping anyone
+  // already ticked. More than one student makes it a group lesson.
+  const addGroupStudents = (groupId) => {
+    const group = groups.find((g) => g.id === groupId)
+    if (!group) return
+    const memberIds = (group.studentIds || []).filter((id) => students.some((s) => s.id === id))
+    setForm((f) => {
+      const studentIds = [...new Set([...f.studentIds, ...memberIds])]
+      return { ...f, type: studentIds.length > 1 ? 'group' : f.type, studentIds }
     })
   }
 
@@ -112,6 +124,17 @@ export default function BookingForm({ initial, students, defaultDate, onSubmit, 
 
       <div className="field">
         <label>{form.type === 'group' ? 'Students in this group' : 'Student'}</label>
+        {groups.length > 0 && (
+          <div className="group-add-row">
+            <select value="" onChange={(e) => addGroupStudents(e.target.value)} aria-label="Add a saved group">
+              <option value="">Add a saved group…</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>{g.name} ({(g.studentIds || []).filter((id) => students.some((s) => s.id === id)).length})</option>
+              ))}
+            </select>
+            {form.studentIds.length > 0 && <span className="muted">{form.studentIds.length} selected</span>}
+          </div>
+        )}
         <div className="search-wrap" style={{ marginBottom: 8 }}>
           <span className="search-icon">🔍</span>
           <input

@@ -3,6 +3,7 @@ import { listenStudents, addStudent, updateStudent, deleteStudent, bulkUpdateStu
 import { formatCurrency, exportStudentsCSV } from '../lib/helpers'
 import Modal from '../components/Modal'
 import StudentForm from '../components/StudentForm'
+import StudentGroups from '../components/StudentGroups'
 
 const COLUMN_DEFS = {
   firstName: { label: 'Name', accessor: (s) => s.firstName || '' },
@@ -41,6 +42,7 @@ export default function Students() {
   const [overKey, setOverKey] = useState(null)
   const [modal, setModal] = useState(null) // null | 'add' | student object (edit)
   const [confirmDelete, setConfirmDelete] = useState(null)
+  const [tab, setTab] = useState('students')
   const rolloverRan = useRef(false)
 
   useEffect(() => {
@@ -136,17 +138,28 @@ export default function Students() {
 
   return (
     <>
-      <div className="content-header">
+      <div className="content-header" style={{ marginBottom: 14 }}>
         <div>
           <h1>Students</h1>
           <p>{students.length} registered</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn btn-outline" onClick={() => exportStudentsCSV(sorted)}>Export CSV</button>
-          <button className="btn btn-accent" onClick={() => setModal('add')}>+ Register student</button>
-        </div>
+        {tab === 'students' && (
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn btn-outline" onClick={() => exportStudentsCSV(sorted)}>Export CSV</button>
+            <button className="btn btn-accent" onClick={() => setModal('add')}>+ Register student</button>
+          </div>
+        )}
       </div>
 
+      <div className="tab-bar" role="tablist">
+        {[{ key: 'students', label: 'Students' }, { key: 'groups', label: 'Groups' }].map((t) => (
+          <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={tab === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'groups' ? <StudentGroups students={students} /> : <>
       <div className="cal-toolbar">
         <div className="search-wrap" style={{ maxWidth: 420, flex: 1 }}>
           <span className="search-icon">🔍</span>
@@ -198,6 +211,7 @@ export default function Students() {
           </table>
         </div>
       </div>
+      </>}
 
       {modal && (
         <Modal title={modal === 'add' ? 'Register a student' : 'Edit student'} onClose={() => setModal(null)} width={560}>
