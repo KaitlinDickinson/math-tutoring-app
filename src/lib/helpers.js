@@ -260,17 +260,29 @@ export function invoiceFileName(invoice) {
 }
 
 /** Renders an invoice element to a PDF Blob. The library is loaded on first use. */
-export async function invoicePdfBlob(element) {
+export async function elementPdfBlob(element, orientation = 'portrait') {
   const { default: html2pdf } = await import('html2pdf.js')
   return html2pdf()
     .set({
       margin: 12,
       html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['css', 'legacy'] }
+      jsPDF: { unit: 'mm', format: 'a4', orientation },
+      pagebreak: { mode: ['css', 'legacy'], avoid: 'tr' }
     })
     .from(element)
     .outputPdf('blob')
+}
+
+export const invoicePdfBlob = (element) => elementPdfBlob(element, 'portrait')
+
+/** The time slot to show for a sign-in: the booked slot if it has one, else the sign-in time. */
+export function sessionTimeLabel(session, booking) {
+  if (booking) return `${booking.startTime} – ${booking.endTime}`
+  return formatTime(session.checkInTime)
+}
+
+export function paymentTimingLabel(t) {
+  return { onDay: 'Pays on the day', startOfMonth: 'Pays start of month', endOfMonth: 'Pays end of month' }[t] || t || ''
 }
 
 export function downloadBlob(blob, filename) {
@@ -351,7 +363,8 @@ export function exportAttendanceCSV(sessions, students, bookings, filename = `at
     const booking = links.get(s.id) || null
     return {
       Date: s.date,
-      Time: formatTime(s.checkInTime),
+      BookedTime: booking ? `${booking.startTime}-${booking.endTime}` : '',
+      SignedInAt: formatTime(s.checkInTime),
       FirstName: st?.firstName || '',
       LastName: st?.lastName || '',
       Grade: st?.grade ?? '',

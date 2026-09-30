@@ -527,6 +527,12 @@ table.ledger tr:hover td { background: #fafbf9; }
 .attendance-summary .btn-link { margin-left: 8px; }
 .attendance-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
+/* The register is drawn off screen while its PDF is made */
+.pdf-stage { position: fixed; left: -10000px; top: 0; pointer-events: none; }
+.attendance-doc { padding: 8px; color: var(--ink); }
+.attendance-doc-table { font-size: 12.5px; }
+.attendance-doc-table td, .attendance-doc-table th { padding: 8px 10px; }
+
 /* ---------- Invoices ---------- */
 .tab-count {
   display: inline-block;

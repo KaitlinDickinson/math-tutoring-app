@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
-import { listenStudents, listenSessions, listenBookings, addSession, updateSession, deleteSession } from '../lib/db'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  formatDate, formatTime, formatCurrency, monthLabel, exportAttendanceCSV, sessionHours, sessionLabel,
-  linkSessionsToBookings
+  listenStudents, listenSessions, listenBookings, listenSettings, addSession, updateSession, deleteSession
+} from '../lib/db'
+import {
+  formatDate, formatTime, monthLabel, exportAttendanceCSV, sessionHours, sessionTimeLabel,
+  linkSessionsToBookings, elementPdfBlob, downloadBlob
 } from '../lib/helpers'
 import Modal from '../components/Modal'
 import SessionForm from '../components/SessionForm'
+import AttendanceDocument from '../components/AttendanceDocument'
 
 const now = new Date()
 const fullName = (st) => `${st.firstName} ${st.lastName}`
@@ -14,23 +17,30 @@ export default function Attendance() {
   const [students, setStudents] = useState([])
   const [sessions, setSessions] = useState([])
   const [bookings, setBookings] = useState([])
+  const [settings, setSettings] = useState({})
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() })
   const { year, month } = cursor
   const [query, setQuery] = useState('')
   const [modal, setModal] = useState(null) // null | 'add' | session object (edit)
   const [confirmDelete, setConfirmDelete] = useState(null)
+  const [makingPdf, setMakingPdf] = useState(false)
+  const [pdfError, setPdfError] = useState('')
+  const docRef = useRef(null)
 
   useEffect(() => {
     const u1 = listenStudents(setStudents)
     const u2 = listenSessions(setSessions)
     const u3 = listenBookings(setBookings)
-    return () => { u1(); u2(); u3() }
+    const u4 = listenSettings(setSettings)
+    return () => { u1(); u2(); u3(); u4() }
   }, [])
 
   const studentOf = (id) => students.find((s) => s.id === id)
   // Same session -> booking matching the invoices use, so hours always agree.
   const links = useMemo(() => linkSessionsToBookings(sessions, bookings), [sessions, bookings])
   const bookingFor = (s) => links.get(s.id) || null
+  // Booked start time, so rows sort by the slot shown rather than arrival time.
+  const slotStart = (s) => bookingFor(s)?.startTime || formatTime(s.checkInTime)
 
   const shiftMonth = (delta) => setCursor(({ year, month }) => {
     const d = new Date(year, month + delta, 1)
@@ -60,11 +70,11 @@ export default function Attendance() {
       })
       .sort((a, b) => {
         if (a.date !== b.date) return a.date < b.date ? 1 : -1
-        return (a.checkInTime || '') < (b.checkInTime || '') ? 1 : -1
+        return slotStart(a) < slotStart(b) ? 1 : -1
       })
-  }, [sessions, students, year, month, query])
+  }, [sessions, students, links, year, month, query])
 
-  // Which students are in view, so the summary and export say exactly
+  // Which students are in view, so the summary and downloads say exactly
   // whose attendance they cover.
   const shownStudents = useMemo(() => {
     const ids = [...new Set(rows.map((s) => s.studentId))]
@@ -75,25 +85,31 @@ export default function Attendance() {
   const oneStudent = searching && shownStudents.length === 1 ? shownStudents[0] : null
   const period = monthLabel(year, month)
   const signIns = `${rows.length} sign-in${rows.length === 1 ? '' : 's'}`
+  const who = oneStudent ? fullName(oneStudent) : searching ? `${shownStudents.length} students` : 'All students'
 
-  const exportLabel = !searching
-    ? 'Export CSV'
-    : oneStudent
-      ? `Export ${fullName(oneStudent)}'s attendance`
-      : `Export ${shownStudents.length} students' attendance`
-
-  const handleExport = () => {
-    const who = oneStudent ? fullName(oneStudent) : searching ? `search-${query.trim()}` : 'all'
+  const handleExportCsv = () => {
     const filename = `attendance-${who}-${period}.csv`.replace(/[^\w.-]+/g, '-')
     exportAttendanceCSV(rows, students, bookings, filename)
   }
+
+  // The register is only rendered (off screen) while a PDF is being made.
+  useEffect(() => {
+    if (!makingPdf || !docRef.current) return
+    elementPdfBlob(docRef.current, oneStudent ? 'portrait' : 'landscape')
+      .then((blob) => downloadBlob(blob, `Attendance - ${who} - ${period}.pdf`))
+      .catch(() => setPdfError("The PDF couldn't be created. Please try again."))
+      .finally(() => setMakingPdf(false))
+  }, [makingPdf])
+
+  // The register lists lessons in date order, oldest first.
+  const docRows = useMemo(() => [...rows].reverse(), [rows])
 
   return (
     <>
       <div className="content-header">
         <div>
           <h1>Attendance</h1>
-          <p>Every signed-in session, with the student's full profile and accountable-person details.</p>
+          <p>Every signed-in session. Parent, payment and session details are included in the download.</p>
         </div>
         <button className="btn btn-accent" onClick={() => setModal('add')}>+ Add attendance</button>
       </div>
@@ -123,15 +139,15 @@ export default function Attendance() {
           )}
         </div>
         <div className="attendance-actions">
-          <button className="btn btn-outline btn-sm" onClick={handleExport} disabled={rows.length === 0}>{exportLabel}</button>
-          <button className="btn btn-outline btn-sm" onClick={() => window.print()} disabled={rows.length === 0}>Print / Save as PDF</button>
+          <button className="btn btn-accent btn-sm" onClick={() => { setPdfError(''); setMakingPdf(true) }} disabled={rows.length === 0 || makingPdf}>
+            {makingPdf ? 'Creating PDF…' : oneStudent ? `Download ${fullName(oneStudent)}'s register (PDF)` : 'Download register (PDF)'}
+          </button>
+          <button className="btn btn-outline btn-sm" onClick={handleExportCsv} disabled={rows.length === 0}>Export CSV</button>
         </div>
       </div>
+      {pdfError && <div className="settings-message error">{pdfError}</div>}
 
-      <div className="panel print-area">
-        <p className="muted" style={{ padding: '14px 14px 0' }}>
-          {oneStudent ? `${fullName(oneStudent)}, ` : ''}{period}: {signIns}
-        </p>
+      <div className="panel">
         <div className="table-scroll">
           <table className="ledger">
             <thead>
@@ -140,10 +156,7 @@ export default function Attendance() {
                 <th>Time</th>
                 <th>Student</th>
                 <th>Signature</th>
-                <th>Accountable person</th>
-                <th>Payment</th>
-                <th>Session</th>
-                <th className="no-print"></th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -152,9 +165,9 @@ export default function Attendance() {
                 return (
                   <tr key={s.id}>
                     <td>{formatDate(s.date)}</td>
-                    <td>{formatTime(s.checkInTime)}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{sessionTimeLabel(s, bookingFor(s))}</td>
                     <td>
-                      <strong>{st ? `${st.firstName} ${st.lastName}` : 'Unknown student'}</strong>
+                      <strong>{st ? fullName(st) : 'Unknown student'}</strong>
                       <div className="muted">{st?.studentContact}</div>
                     </td>
                     <td>
@@ -162,23 +175,7 @@ export default function Attendance() {
                         ? <img src={s.signature} alt="Signature" style={{ height: 32, display: 'block' }} />
                         : <span className="muted">{s.manualEntry ? 'Manually added' : '—'}</span>}
                     </td>
-                    <td>
-                      {st?.accountable?.name} {st?.accountable?.surname}
-                      <div className="muted">{st?.accountable?.contact}</div>
-                      <div className="muted">{st?.accountable?.email}</div>
-                    </td>
-                    <td>
-                      {st?.paymentMethod} · {timingLabel(st?.paymentTiming)}
-                      <div className="muted">{formatCurrency(st?.hourlyRate)}/hr default</div>
-                    </td>
-                    <td>
-                      {sessionLabel(bookingFor(s), s.bookingTitle, s.sessionType)}
-                      <div className="muted">
-                        {sessionHours(s, bookingFor(s))}h @ {formatCurrency(s.rate)}
-                        {s.notBilled && ', not billed'}
-                      </div>
-                    </td>
-                    <td className="no-print" style={{ whiteSpace: 'nowrap' }}>
+                    <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                       <button className="btn btn-outline btn-sm" onClick={() => setModal(s)}>Edit</button>{' '}
                       <button className="btn btn-danger btn-sm" onClick={() => setConfirmDelete(s)}>Delete</button>
                     </td>
@@ -186,7 +183,7 @@ export default function Attendance() {
                 )
               })}
               {rows.length === 0 && (
-                <tr><td colSpan={8}><div className="empty-state">
+                <tr><td colSpan={5}><div className="empty-state">
                   {searching ? `No sign-ins matching "${query.trim()}" in ${period}.` : `No sign-ins in ${period}.`}
                 </div></td></tr>
               )}
@@ -194,6 +191,21 @@ export default function Attendance() {
           </table>
         </div>
       </div>
+
+      {makingPdf && (
+        <div className="pdf-stage" aria-hidden="true">
+          <div ref={docRef} style={{ width: oneStudent ? 760 : 1080, background: '#fff' }}>
+            <AttendanceDocument
+              sessions={docRows}
+              studentOf={studentOf}
+              bookingFor={bookingFor}
+              settings={settings}
+              period={period}
+              student={oneStudent}
+            />
+          </div>
+        </div>
+      )}
 
       {modal && (
         <Modal title={modal === 'add' ? 'Add attendance' : 'Edit sign-in'} onClose={() => setModal(null)} width={480}>
@@ -220,8 +232,4 @@ export default function Attendance() {
       )}
     </>
   )
-}
-
-function timingLabel(t) {
-  return { onDay: 'Pays on the day', startOfMonth: 'Pays start of month', endOfMonth: 'Pays end of month' }[t] || t || '—'
 }
