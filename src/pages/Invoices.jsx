@@ -33,6 +33,7 @@ export default function Invoices() {
   const [viewing, setViewing] = useState(null)
   const [markingPaid, setMarkingPaid] = useState(null)
   const [editing, setEditing] = useState(null) // { studentId, year, month }
+  const [query, setQuery] = useState('')
   const creating = useRef(new Set())
 
   useEffect(() => {
@@ -99,14 +100,22 @@ export default function Invoices() {
 
   const isCurrentMonth = (inv) => inv.year === today.getFullYear() && inv.month === today.getMonth()
 
+  // One search box for both tabs; totals follow it, so searching a name
+  // shows what that student owes / was billed.
+  const q = query.trim().toLowerCase()
+  const matches = (name) => !q || (name || '').toLowerCase().includes(q)
+
+  const allOutstanding = useMemo(() => [...invoiceByKey.values()]
+    .filter((inv) => inv.status !== 'paid' && inv.total > 0)
+    .sort((a, b) => (a.year - b.year) || (a.month - b.month) || a.studentName.localeCompare(b.studentName)),
+  [invoiceByKey])
+
   const outstanding = useMemo(() => {
-    const list = [...invoiceByKey.values()]
-      .filter((inv) => inv.status !== 'paid' && inv.total > 0)
-      .sort((a, b) => (a.year - b.year) || (a.month - b.month) || a.studentName.localeCompare(b.studentName))
+    const list = allOutstanding.filter((inv) => matches(inv.studentName))
     const total = list.reduce((sum, inv) => sum + inv.total, 0)
     const inProgress = list.filter(isCurrentMonth).reduce((sum, inv) => sum + inv.total, 0)
     return { list, total, inProgress }
-  }, [invoiceByKey])
+  }, [allOutstanding, q])
 
   // By month: every student with sessions or missed bookings that month.
   const monthRows = useMemo(() => {
@@ -120,8 +129,9 @@ export default function Invoices() {
         return { student, invoice, preview }
       })
       .filter((r) => r.invoice || r.preview.sessionCount > 0 || r.preview.missedCount > 0)
+      .filter((r) => matches(r.preview.studentName))
       .sort((a, b) => a.preview.studentName.localeCompare(b.preview.studentName))
-  }, [loaded, students, sessions, bookings, invoiceByKey, previewByKey, cursor])
+  }, [loaded, students, sessions, bookings, invoiceByKey, previewByKey, cursor, q])
 
   const monthTotals = useMemo(() => {
     let billed = 0
@@ -160,6 +170,13 @@ export default function Invoices() {
     ? outstanding.list
     : monthRows.map((r) => r.invoice).filter(Boolean)
 
+  const searchBox = (
+    <div className="search-wrap" style={{ maxWidth: 280, flex: 1 }}>
+      <span className="search-icon">🔍</span>
+      <input placeholder="Search student…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search student" />
+    </div>
+  )
+
   if (!loaded) return <div className="empty-state">Loading…</div>
 
   return (
@@ -178,15 +195,20 @@ export default function Invoices() {
         {TABS.map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={tab === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>
             {t.label}
-            {t.key === 'outstanding' && outstanding.list.length > 0 && <span className="tab-count">{outstanding.list.length}</span>}
+            {t.key === 'outstanding' && allOutstanding.length > 0 && <span className="tab-count">{allOutstanding.length}</span>}
           </button>
         ))}
       </div>
 
       {tab === 'outstanding' ? (
         <>
+          <div className="cal-toolbar">
+            <div />
+            {searchBox}
+          </div>
+
           <div className="owed-summary">
-            <div className="owed-label">Total outstanding</div>
+            <div className="owed-label">{q ? `Outstanding for "${query.trim()}"` : 'Total outstanding'}</div>
             <div className="owed-amount">{formatCurrency(outstanding.total)}</div>
             {outstanding.inProgress > 0 && (
               <div className="owed-note">
@@ -214,7 +236,9 @@ export default function Invoices() {
                     />
                   ))}
                   {outstanding.list.length === 0 && (
-                    <tr><td colSpan={6}><div className="empty-state">Nobody owes anything right now.</div></td></tr>
+                    <tr><td colSpan={6}><div className="empty-state">
+                      {q ? `No outstanding invoices for "${query.trim()}".` : 'Nobody owes anything right now.'}
+                    </div></td></tr>
                   )}
                 </tbody>
               </table>
@@ -230,6 +254,7 @@ export default function Invoices() {
               <button onClick={() => shiftMonth(1)} aria-label="Next month">→</button>
               <button className="btn btn-outline btn-sm" onClick={() => setCursor({ year: today.getFullYear(), month: today.getMonth() })}>This month</button>
             </div>
+            {searchBox}
           </div>
 
           <div className="stat-row">
@@ -268,7 +293,11 @@ export default function Invoices() {
                     )
                   ))}
                   {monthRows.length === 0 && (
-                    <tr><td colSpan={5}><div className="empty-state">No sessions for {monthLabel(cursor.year, cursor.month)}.</div></td></tr>
+                    <tr><td colSpan={5}><div className="empty-state">
+                      {q
+                        ? `No sessions for "${query.trim()}" in ${monthLabel(cursor.year, cursor.month)}.`
+                        : `No sessions for ${monthLabel(cursor.year, cursor.month)}.`}
+                    </div></td></tr>
                   )}
                 </tbody>
               </table>
