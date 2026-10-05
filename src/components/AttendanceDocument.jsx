@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { Fragment, useLayoutEffect, useRef } from 'react'
 import {
   formatCurrency, formatDate, sessionHours, sessionLabel, sessionTimeLabel, paymentTimingLabel, pdfPageSizePx
 } from '../lib/helpers'
@@ -28,7 +28,8 @@ function From({ billing }) {
 
 // A one-student sign-in card to print and fill in by hand, laid out like the
 // paper register: learner and parent details boxed at the top, then the lines.
-function BlankSheet({ settings }) {
+// Given a student, the top box comes filled in with their details.
+function BlankSheet({ settings, student }) {
   const billing = settings?.billing || {}
   const hasFrom = billing.businessName || billing.address || billing.contactEmail || billing.contactPhone
   const pageRef = useRef(null)
@@ -44,11 +45,12 @@ function BlankSheet({ settings }) {
     const space = page.getBoundingClientRect().bottom - padding - sheetBorder - bodyRef.current.getBoundingClientRect().top
     const height = Math.floor(space / rows.length)
     rows.forEach((tr) => { tr.style.height = `${height}px` })
-  }, [hasFrom])
+  })
 
-  const cell = (label, flex) => [
+  const parent = student?.accountable || {}
+  const cell = (label, flex, value) => [
     <div key={`${label}-l`} className="blank-sheet-label" style={{ flex: flex[0] }}>{label}:</div>,
-    <div key={`${label}-v`} className="blank-sheet-value" style={{ flex: flex[1] }} />
+    <div key={`${label}-v`} className="blank-sheet-value" style={{ flex: flex[1] }}>{value}</div>
   ]
 
   return (
@@ -63,13 +65,13 @@ function BlankSheet({ settings }) {
         <Watermark settings={settings} />
         <div className="blank-sheet">
           <div className="blank-sheet-row">
-            {cell('Parent / guardian', [2, 4])}
-            {cell('Learner name and surname', [3, 3])}
+            {cell('Parent / guardian', [2, 4], [parent.name, parent.surname].filter(Boolean).join(' '))}
+            {cell('Learner name and surname', [3, 3], student && `${student.firstName} ${student.lastName}`)}
           </div>
           <div className="blank-sheet-row">
-            {cell('Email', [1, 2])}
-            {cell('Contact number', [2, 2])}
-            {cell('Birthday', [2, 1.5])}
+            {cell('Email', [1, 3.5], parent.email)}
+            {cell('Contact number', [1.8, 2], parent.contact)}
+            {cell('Birthday', [1.5, 1.5])}
           </div>
           <table className="blank-sheet-table">
             <thead>
@@ -89,10 +91,18 @@ function BlankSheet({ settings }) {
 
 // The downloadable attendance register, styled like InvoiceDocument. With one
 // student the parent and payment details go in the header; with several they
-// become columns so every row still says who it's for. `blank` gives an empty
-// sign-in sheet to print instead.
-export default function AttendanceDocument({ sessions, studentOf, bookingFor, settings, period, student, blank }) {
-  if (blank) return <BlankSheet settings={settings} />
+// become columns so every row still says who it's for. `blank` gives sign-in
+// sheets to print instead: one page per student in `students`, or one empty page.
+export default function AttendanceDocument({ sessions, studentOf, bookingFor, settings, period, student, students, blank }) {
+  if (blank) {
+    const pages = students?.length ? students : [null]
+    return pages.map((st, i) => (
+      <Fragment key={st?.id || 'empty'}>
+        {i > 0 && <div className="html2pdf__page-break" />}
+        <BlankSheet settings={settings} student={st} />
+      </Fragment>
+    ))
+  }
 
   const billing = settings?.billing || {}
   const hasFrom = billing.businessName || billing.address || billing.contactEmail || billing.contactPhone

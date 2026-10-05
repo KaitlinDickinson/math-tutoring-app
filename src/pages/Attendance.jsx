@@ -9,6 +9,7 @@ import {
 import Modal from '../components/Modal'
 import SessionForm from '../components/SessionForm'
 import AttendanceDocument from '../components/AttendanceDocument'
+import BlankSheetPicker from '../components/BlankSheetPicker'
 
 const now = new Date()
 const fullName = (st) => `${st.firstName} ${st.lastName}`
@@ -21,10 +22,11 @@ export default function Attendance() {
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() })
   const { year, month } = cursor
   const [query, setQuery] = useState('')
-  const [modal, setModal] = useState(null) // null | 'add' | session object (edit)
+  const [modal, setModal] = useState(null) // null | 'add' | 'blank' | session object (edit)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [makingPdf, setMakingPdf] = useState(false) // false | 'register' | 'blank'
   const [pdfError, setPdfError] = useState('')
+  const [sheetStudents, setSheetStudents] = useState([]) // who the blank sheets are for
   const docRef = useRef(null)
 
   useEffect(() => {
@@ -97,10 +99,22 @@ export default function Attendance() {
     if (!makingPdf || !docRef.current) return
     const blank = makingPdf === 'blank'
     elementPdfBlob(docRef.current, oneStudent || blank ? 'portrait' : 'landscape')
-      .then((blob) => downloadBlob(blob, blank ? 'Blank attendance sheet.pdf' : `Attendance - ${who} - ${period}.pdf`))
+      .then((blob) => downloadBlob(blob, blank ? blankSheetFileName() : `Attendance - ${who} - ${period}.pdf`))
       .catch(() => setPdfError("The PDF couldn't be created. Please try again."))
       .finally(() => setMakingPdf(false))
   }, [makingPdf])
+
+  const blankSheetFileName = () => {
+    if (sheetStudents.length === 1) return `Attendance sheet - ${fullName(sheetStudents[0])}.pdf`
+    if (sheetStudents.length > 1) return `Attendance sheets - ${sheetStudents.length} students.pdf`
+    return 'Blank attendance sheet.pdf'
+  }
+  const handleBlankSheets = (chosen) => {
+    setModal(null)
+    setSheetStudents(chosen)
+    setPdfError('')
+    setMakingPdf('blank')
+  }
 
   // The register lists lessons in date order, oldest first.
   const docRows = useMemo(() => [...rows].reverse(), [rows])
@@ -144,8 +158,8 @@ export default function Attendance() {
             {makingPdf === 'register' ? 'Creating PDF…' : oneStudent ? `Download ${fullName(oneStudent)}'s register (PDF)` : 'Download register (PDF)'}
           </button>
           <button className="btn btn-outline btn-sm" onClick={handleExportCsv} disabled={rows.length === 0}>Export CSV</button>
-          <button className="btn btn-outline btn-sm" onClick={() => { setPdfError(''); setMakingPdf('blank') }} disabled={!!makingPdf}>
-            {makingPdf === 'blank' ? 'Creating PDF…' : 'Blank sheet (PDF)'}
+          <button className="btn btn-outline btn-sm" onClick={() => setModal('blank')} disabled={!!makingPdf}>
+            {makingPdf === 'blank' ? 'Creating PDF…' : 'Blank sheets (PDF)'}
           </button>
         </div>
       </div>
@@ -200,7 +214,7 @@ export default function Attendance() {
         <div className="pdf-stage" aria-hidden="true">
           {makingPdf === 'blank' ? (
             <div ref={docRef} style={{ width: pdfPageSizePx('portrait').width, background: '#fff' }}>
-              <AttendanceDocument settings={settings} blank />
+              <AttendanceDocument settings={settings} students={sheetStudents} blank />
             </div>
           ) : (
             <div ref={docRef} style={{ width: pdfPageSizePx(oneStudent ? 'portrait' : 'landscape').width, background: '#fff' }}>
@@ -217,7 +231,13 @@ export default function Attendance() {
         </div>
       )}
 
-      {modal && (
+      {modal === 'blank' && (
+        <Modal title="Blank attendance sheets" onClose={() => setModal(null)} width={480}>
+          <BlankSheetPicker students={students} onDownload={handleBlankSheets} onCancel={() => setModal(null)} />
+        </Modal>
+      )}
+
+      {modal && modal !== 'blank' && (
         <Modal title={modal === 'add' ? 'Add attendance' : 'Edit sign-in'} onClose={() => setModal(null)} width={480}>
           <SessionForm
             initial={modal === 'add' ? null : { ...modal, durationHours: sessionHours(modal, bookingFor(modal)) }}
