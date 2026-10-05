@@ -4,7 +4,7 @@ import {
 } from '../lib/db'
 import {
   formatDate, formatTime, monthLabel, exportAttendanceCSV, sessionHours, sessionTimeLabel,
-  linkSessionsToBookings, elementPdfBlob, downloadBlob
+  linkSessionsToBookings, elementPdfBlob, pdfPageSizePx, downloadBlob
 } from '../lib/helpers'
 import Modal from '../components/Modal'
 import SessionForm from '../components/SessionForm'
@@ -23,7 +23,7 @@ export default function Attendance() {
   const [query, setQuery] = useState('')
   const [modal, setModal] = useState(null) // null | 'add' | session object (edit)
   const [confirmDelete, setConfirmDelete] = useState(null)
-  const [makingPdf, setMakingPdf] = useState(false)
+  const [makingPdf, setMakingPdf] = useState(false) // false | 'register' | 'blank'
   const [pdfError, setPdfError] = useState('')
   const docRef = useRef(null)
 
@@ -95,8 +95,9 @@ export default function Attendance() {
   // The register is only rendered (off screen) while a PDF is being made.
   useEffect(() => {
     if (!makingPdf || !docRef.current) return
-    elementPdfBlob(docRef.current, oneStudent ? 'portrait' : 'landscape')
-      .then((blob) => downloadBlob(blob, `Attendance - ${who} - ${period}.pdf`))
+    const blank = makingPdf === 'blank'
+    elementPdfBlob(docRef.current, oneStudent || blank ? 'portrait' : 'landscape')
+      .then((blob) => downloadBlob(blob, blank ? 'Blank attendance sheet.pdf' : `Attendance - ${who} - ${period}.pdf`))
       .catch(() => setPdfError("The PDF couldn't be created. Please try again."))
       .finally(() => setMakingPdf(false))
   }, [makingPdf])
@@ -139,10 +140,13 @@ export default function Attendance() {
           )}
         </div>
         <div className="attendance-actions">
-          <button className="btn btn-accent btn-sm" onClick={() => { setPdfError(''); setMakingPdf(true) }} disabled={rows.length === 0 || makingPdf}>
-            {makingPdf ? 'Creating PDF…' : oneStudent ? `Download ${fullName(oneStudent)}'s register (PDF)` : 'Download register (PDF)'}
+          <button className="btn btn-accent btn-sm" onClick={() => { setPdfError(''); setMakingPdf('register') }} disabled={rows.length === 0 || !!makingPdf}>
+            {makingPdf === 'register' ? 'Creating PDF…' : oneStudent ? `Download ${fullName(oneStudent)}'s register (PDF)` : 'Download register (PDF)'}
           </button>
           <button className="btn btn-outline btn-sm" onClick={handleExportCsv} disabled={rows.length === 0}>Export CSV</button>
+          <button className="btn btn-outline btn-sm" onClick={() => { setPdfError(''); setMakingPdf('blank') }} disabled={!!makingPdf}>
+            {makingPdf === 'blank' ? 'Creating PDF…' : 'Blank sheet (PDF)'}
+          </button>
         </div>
       </div>
       {pdfError && <div className="settings-message error">{pdfError}</div>}
@@ -194,16 +198,22 @@ export default function Attendance() {
 
       {makingPdf && (
         <div className="pdf-stage" aria-hidden="true">
-          <div ref={docRef} style={{ width: oneStudent ? 760 : 1080, background: '#fff' }}>
-            <AttendanceDocument
-              sessions={docRows}
-              studentOf={studentOf}
-              bookingFor={bookingFor}
-              settings={settings}
-              period={period}
-              student={oneStudent}
-            />
-          </div>
+          {makingPdf === 'blank' ? (
+            <div ref={docRef} style={{ width: pdfPageSizePx('portrait').width, background: '#fff' }}>
+              <AttendanceDocument settings={settings} blank />
+            </div>
+          ) : (
+            <div ref={docRef} style={{ width: pdfPageSizePx(oneStudent ? 'portrait' : 'landscape').width, background: '#fff' }}>
+              <AttendanceDocument
+                sessions={docRows}
+                studentOf={studentOf}
+                bookingFor={bookingFor}
+                settings={settings}
+                period={period}
+                student={oneStudent}
+              />
+            </div>
+          )}
         </div>
       )}
 

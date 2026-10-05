@@ -574,6 +574,26 @@ table.ledger tr:hover td { background: #fafbf9; }
 .attendance-doc { padding: 8px; color: var(--ink); }
 .attendance-doc-table { font-size: 12.5px; }
 .attendance-doc-table td, .attendance-doc-table th { padding: 8px 10px; }
+.attendance-doc-body { position: relative; }
+.attendance-doc-body .attendance-doc-table { position: relative; }
+.attendance-doc-watermark {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  max-width: 55%; max-height: 80%; opacity: 0.08; pointer-events: none;
+}
+.blank-page { box-sizing: border-box; }
+.blank-sheet { position: relative; border: 2px solid var(--ink-soft); font-size: 11.5px; }
+.blank-sheet-row { display: flex; border-bottom: 1px solid var(--ink-faint); }
+.blank-sheet-label, .blank-sheet-value { min-height: 34px; padding: 6px 8px; }
+.blank-sheet-label { font-weight: 700; text-transform: uppercase; display: flex; align-items: center; }
+.blank-sheet-row > div + div { border-left: 1px solid var(--ink-faint); }
+.blank-sheet-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.blank-sheet-table th {
+  padding: 6px 4px; font-weight: 700; text-transform: uppercase; text-align: center;
+  vertical-align: top; border-bottom: 1px solid var(--ink-faint);
+}
+.blank-sheet-table td { height: 34px; border-bottom: 1px solid var(--ink-faint); }
+.blank-sheet-table tr:last-child td { border-bottom: none; }
+.blank-sheet-table th + th, .blank-sheet-table td + td { border-left: 1px solid var(--ink-faint); }
 
 /* ---------- Invoices ---------- */
 .tab-count {

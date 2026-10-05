@@ -259,12 +259,25 @@ export function invoiceFileName(invoice) {
   return `Invoice - ${invoice.studentName} - ${monthLabel(invoice.year, invoice.month)}.pdf`
 }
 
+const PDF_MARGIN_MM = 12
+
+/**
+ * The printable area of an A4 PDF page in CSS pixels (96 per inch). html2pdf
+ * lays the element out at this width, so anything wider is cut off on the
+ * right: draw PDF documents at exactly this width.
+ */
+export function pdfPageSizePx(orientation = 'portrait') {
+  const [w, h] = orientation === 'landscape' ? [297, 210] : [210, 297]
+  const px = (mm) => Math.floor((mm - 2 * PDF_MARGIN_MM) * 96 / 25.4)
+  return { width: px(w), height: px(h) }
+}
+
 /** Renders an invoice element to a PDF Blob. The library is loaded on first use. */
 export async function elementPdfBlob(element, orientation = 'portrait') {
   const { default: html2pdf } = await import('html2pdf.js')
   return html2pdf()
     .set({
-      margin: 12,
+      margin: PDF_MARGIN_MM,
       html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true },
       jsPDF: { unit: 'mm', format: 'a4', orientation },
       pagebreak: { mode: ['css', 'legacy'], avoid: 'tr' }

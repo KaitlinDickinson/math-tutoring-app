@@ -14,25 +14,30 @@ const TABS = [
   { key: 'users', label: 'Users' }
 ]
 
-// The logo is stored inside the settings document itself (Firestore docs max
-// out at 1MB and Firebase Storage isn't on the free plan), so shrink it first.
-const LOGO_MAX_W = 480
-const LOGO_MAX_H = 200
+// Images are stored inside the settings document itself (Firestore docs max
+// out at 1MB and Firebase Storage isn't on the free plan), so shrink them first.
+const LOGO_SIZE = { maxW: 480, maxH: 200 }
+// The watermark prints faintly on white paper, so a white-backed JPEG keeps
+// it small enough to sit in the same document as the logo.
+const WATERMARK_SIZE = { maxW: 600, maxH: 600, jpeg: true }
 
-function resizeLogo(file) {
+function resizeImage(file, { maxW, maxH, jpeg }) {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => {
       // SVGs without a set size can report 0x0; fall back to the max box.
-      const w = img.width || LOGO_MAX_W
-      const h = img.height || LOGO_MAX_H
-      const scale = Math.min(1, LOGO_MAX_W / w, LOGO_MAX_H / h)
+      const w = img.width || maxW
+      const h = img.height || maxH
+      const scale = Math.min(1, maxW / w, maxH / h)
       const canvas = document.createElement('canvas')
       canvas.width = Math.round(w * scale)
       canvas.height = Math.round(h * scale)
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+      const ctx = canvas.getContext('2d')
+      if (jpeg) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height) }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
       URL.revokeObjectURL(img.src)
-      resolve(canvas.toDataURL('image/png')) // PNG keeps transparent backgrounds
+      // PNG keeps the logo's transparent background.
+      resolve(jpeg ? canvas.toDataURL('image/jpeg', 0.85) : canvas.toDataURL('image/png'))
     }
     img.onerror = () => reject(new Error("That image couldn't be read. Try a PNG or JPG."))
     img.src = URL.createObjectURL(file)
@@ -47,7 +52,7 @@ export default function Settings() {
       <div className="content-header" style={{ marginBottom: 14 }}>
         <div>
           <h1>Settings</h1>
-          <p>{tab === 'general' ? 'Your business details, logo, default rate and WhatsApp message.' : 'Who can log in to the admin side.'}</p>
+          <p>{tab === 'general' ? 'Your business details, logo, watermark, default rate and WhatsApp message.' : 'Who can log in to the admin side.'}</p>
         </div>
       </div>
 
@@ -75,12 +80,12 @@ function GeneralSettings() {
   const [rate, setRate] = useState('')
   const [billing, setBilling] = useState(BILLING_DEFAULTS)
   const [logo, setLogo] = useState('')
+  const [watermark, setWatermark] = useState('')
   const [whatsappMessage, setWhatsappMessage] = useState('')
   const [savedState, setSavedState] = useState(null) // last values from the database
-  const [logoError, setLogoError] = useState('')
-  const [dragging, setDragging] = useState(false)
   const [saving, setSaving] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   useEffect(() => {
     const unsub = listenSettings((s) => {
@@ -88,11 +93,13 @@ function GeneralSettings() {
         rate: s.defaultHourlyRate ?? 250,
         billing: { ...BILLING_DEFAULTS, ...s.billing },
         logo: s.logo || '',
+        watermark: s.watermark || '',
         whatsappMessage: s.whatsappMessage || DEFAULT_WHATSAPP_MESSAGE
       }
       setRate(next.rate)
       setBilling(next.billing)
       setLogo(next.logo)
+      setWatermark(next.watermark)
       setWhatsappMessage(next.whatsappMessage)
       setSavedState(next)
     })
@@ -102,6 +109,7 @@ function GeneralSettings() {
   const dirty = savedState && (
     String(rate) !== String(savedState.rate) ||
     logo !== savedState.logo ||
+    watermark !== savedState.watermark ||
     whatsappMessage !== savedState.whatsappMessage ||
     Object.keys(BILLING_DEFAULTS).some((k) => billing[k] !== savedState.billing[k])
   )
@@ -120,33 +128,21 @@ function GeneralSettings() {
     })
   }
 
-  const handleLogoFile = async (file) => {
-    if (!file) return
-    setLogoError('')
-    if (!file.type.startsWith('image/')) {
-      setLogoError('Please choose an image file (PNG, JPG or SVG).')
-      return
-    }
-    try {
-      setLogo(await resizeLogo(file))
-    } catch (err) {
-      setLogoError(err.message)
-    }
-  }
-
-  const handleDrop = (e) => {
-    e.preventDefault()
-    setDragging(false)
-    handleLogoFile(e.dataTransfer.files[0])
-  }
-
   const handleSave = async (e) => {
     e.preventDefault()
     setSaving(true)
-    await saveSettings({ defaultHourlyRate: Number(rate) || 0, billing, logo, whatsappMessage })
-    setSaving(false)
-    setJustSaved(true)
-    setTimeout(() => setJustSaved(false), 2000)
+    setSaveError('')
+    try {
+      await saveSettings({ defaultHourlyRate: Number(rate) || 0, billing, logo, watermark, whatsappMessage })
+      setJustSaved(true)
+      setTimeout(() => setJustSaved(false), 2000)
+    } catch (err) {
+      setSaveError(/size/i.test(err.message)
+        ? 'The logo and watermark images are too large together. Try a smaller or simpler image.'
+        : `Your changes couldn't be saved: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (!savedState) return <div className="empty-state">Loading…</div>
@@ -159,37 +155,15 @@ function GeneralSettings() {
             <h3>Logo</h3>
             <p>Appears at the top of every invoice. PNG with a transparent background works best.</p>
           </div>
-          <div className="logo-row">
-            <label
-              className={`logo-drop ${dragging ? 'dragging' : ''}`}
-              onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={handleDrop}
-            >
-              {logo ? (
-                <>
-                  <img src={logo} alt="Your logo" />
-                  <span className="muted">Click or drop an image to replace</span>
-                </>
-              ) : (
-                <>
-                  <strong style={{ color: 'var(--ink)' }}>Upload your logo</strong>
-                  <span>Click to choose a file, or drag one here</span>
-                </>
-              )}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => { handleLogoFile(e.target.files[0]); e.target.value = '' }}
-              />
-            </label>
-            {logo && (
-              <div className="logo-actions">
-                <button type="button" className="btn btn-outline btn-sm" onClick={() => setLogo('')}>Remove logo</button>
-              </div>
-            )}
-            {logoError && <p style={{ color: 'var(--red)', fontSize: 13, marginTop: 8 }}>{logoError}</p>}
+          <ImageUpload name="logo" image={logo} onChange={setLogo} size={LOGO_SIZE} />
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-intro">
+            <h3>Attendance watermark</h3>
+            <p>Printed faintly behind the table on attendance registers and blank sheets. If you don't upload one, your logo is used.</p>
           </div>
+          <ImageUpload name="watermark" image={watermark} onChange={setWatermark} size={WATERMARK_SIZE} />
         </section>
 
         <section className="settings-section">
@@ -297,6 +271,7 @@ function GeneralSettings() {
         </section>
 
         <div className="settings-savebar">
+          {saveError && <span style={{ color: 'var(--red)', fontSize: 13 }}>{saveError}</span>}
           {dirty && !saving && <span className="unsaved">You have unsaved changes</span>}
           <button className="btn btn-accent" disabled={saving || (!dirty && !justSaved)}>
             {saving ? 'Saving…' : justSaved ? 'Saved ✓' : 'Save changes'}
@@ -341,4 +316,64 @@ function sampleInvoice(rate) {
     lineItems,
     total: hourly * lineItems.length
   }
+}
+
+// Click-or-drop image picker, used for the logo and the watermark.
+function ImageUpload({ name, image, onChange, size }) {
+  const [error, setError] = useState('')
+  const [dragging, setDragging] = useState(false)
+
+  const handleFile = async (file) => {
+    if (!file) return
+    setError('')
+    if (!file.type.startsWith('image/')) {
+      setError('Please choose an image file (PNG, JPG or SVG).')
+      return
+    }
+    try {
+      onChange(await resizeImage(file, size))
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleDrop = (e) => {
+    e.preventDefault()
+    setDragging(false)
+    handleFile(e.dataTransfer.files[0])
+  }
+
+  return (
+    <div className="logo-row">
+      <label
+        className={`logo-drop ${dragging ? 'dragging' : ''}`}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+      >
+        {image ? (
+          <>
+            <img src={image} alt={`Your ${name}`} />
+            <span className="muted">Click or drop an image to replace</span>
+          </>
+        ) : (
+          <>
+            <strong style={{ color: 'var(--ink)' }}>Upload your {name}</strong>
+            <span>Click to choose a file, or drag one here</span>
+          </>
+        )}
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => { handleFile(e.target.files[0]); e.target.value = '' }}
+        />
+      </label>
+      {image && (
+        <div className="logo-actions">
+          <button type="button" className="btn btn-outline btn-sm" onClick={() => onChange('')}>Remove {name}</button>
+        </div>
+      )}
+      {error && <p style={{ color: 'var(--red)', fontSize: 13, marginTop: 8 }}>{error}</p>}
+    </div>
+  )
 }
