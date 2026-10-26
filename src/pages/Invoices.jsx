@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { differenceInCalendarDays } from 'date-fns'
 import {
-  listenStudents, listenSessions, listenBookings, listenInvoices, listenSettings, addNumberedInvoice, updateInvoice
+  listenStudents, listenSessions, listenBookings, listenInvoices, listenSettings, addNumberedInvoice, numberExistingInvoice, updateInvoice, FIRST_NUMBERED_MONTH
 } from '../lib/db'
 import {
   buildMonthlyInvoice, monthsWithSessions, formatCurrency, monthLabel, exportInvoicesCSV, nowStamp
@@ -97,6 +97,22 @@ export default function Invoices() {
       }
     })
   }, [loaded, previewByKey, invoiceByKey])
+
+  // Invoices saved before numbering began (October 2026 onward only) get a
+  // number once, in student-name order, one at a time so the order holds.
+  const numbering = useRef(false)
+  useEffect(() => {
+    if (numbering.current) return
+    const { year: fy, month: fm } = FIRST_NUMBERED_MONTH
+    const unnumbered = [...invoiceByKey.values()]
+      .filter((inv) => !inv.invoiceNumber && (inv.year > fy || (inv.year === fy && inv.month >= fm)))
+      .sort((a, b) => (a.year - b.year) || (a.month - b.month) || a.studentName.localeCompare(b.studentName))
+    if (unnumbered.length === 0) return
+    numbering.current = true
+    ;(async () => {
+      for (const inv of unnumbered) await numberExistingInvoice(inv.id)
+    })().catch(() => {}).finally(() => { numbering.current = false })
+  }, [invoiceByKey])
 
   const isCurrentMonth = (inv) => inv.year === today.getFullYear() && inv.month === today.getMonth()
 

@@ -26,6 +26,9 @@ export function nowStamp() {
   return new Date().toISOString()
 }
 
+export const DEFAULT_INVOICE_THANK_YOU =
+  'Thank you for your support! Together, we’re adding confidence, multiplying knowledge and making a difference.'
+
 /** An invoice for a month is due on the first Monday of the following month. */
 export function invoiceDueDate(year, month) {
   const d = new Date(year, month + 1, 1)

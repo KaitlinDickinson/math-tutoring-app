@@ -1,4 +1,4 @@
-import { formatCurrency, formatDate, monthLabel, invoiceDueDate } from '../lib/helpers'
+import { formatCurrency, formatDate, monthLabel, invoiceDueDate, DEFAULT_INVOICE_THANK_YOU } from '../lib/helpers'
 
 // The invoice itself, shared by InvoiceView (real invoices) and the live
 // preview on the Settings page so the two never drift apart.
@@ -6,6 +6,8 @@ export default function InvoiceDocument({ invoice, settings }) {
   const billing = settings?.billing || {}
   const hasFrom = billing.businessName || billing.address || billing.contactEmail || billing.contactPhone
   const hasBanking = billing.bankName || billing.accountHolder || billing.accountNumber || billing.branchCode
+  // Left blank in Settings means no closing line at all.
+  const thankYou = (billing.thankYouMessage ?? DEFAULT_INVOICE_THANK_YOU).trim()
 
   return (
     <>
@@ -114,9 +116,9 @@ export default function InvoiceDocument({ invoice, settings }) {
         </p>
       )}
 
-      <p style={{ marginTop: 28, textAlign: 'center', fontStyle: 'italic' }}>
-        Thank you for your support! Together, we’re adding confidence, multiplying knowledge and making a difference.
-      </p>
+      {thankYou && (
+        <p style={{ marginTop: 28, textAlign: 'center', fontStyle: 'italic', whiteSpace: 'pre-line' }}>{thankYou}</p>
+      )}
     </>
   )
 }

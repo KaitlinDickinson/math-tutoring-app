@@ -50,15 +50,29 @@ export const addInvoice = (data) => addDoc(collection(db, 'invoices'), data)
 // settings/invoiceCounter. A transaction keeps two tutors with the app open
 // from ever getting the same number.
 const invoiceCounterDoc = doc(db, 'settings', 'invoiceCounter')
-export const FIRST_INVOICE_NUMBER = 2603 // numbering started Oct 2026; earlier invoices have no number
+export const FIRST_INVOICE_NUMBER = 2603
+// Invoices for this month onward get numbers; earlier months stay unnumbered.
+export const FIRST_NUMBERED_MONTH = { year: 2026, month: 9 } // October 2026 (months are 0-based)
+
+const nextInvoiceNumber = (counterSnap) =>
+  Math.max((counterSnap.exists() ? counterSnap.data().last || 0 : 0) + 1, FIRST_INVOICE_NUMBER)
 
 export const addNumberedInvoice = (data) => runTransaction(db, async (tx) => {
-  const snap = await tx.get(invoiceCounterDoc)
-  const last = snap.exists() ? snap.data().last || 0 : 0
-  const number = Math.max(last + 1, FIRST_INVOICE_NUMBER)
+  const number = nextInvoiceNumber(await tx.get(invoiceCounterDoc))
   const ref = doc(collection(db, 'invoices'))
   tx.set(invoiceCounterDoc, { last: number }, { merge: true })
   tx.set(ref, { ...data, invoiceNumber: String(number) })
+})
+
+// Gives an invoice saved before numbering began its number (once only).
+export const numberExistingInvoice = (id) => runTransaction(db, async (tx) => {
+  const invRef = doc(db, 'invoices', id)
+  const counterSnap = await tx.get(invoiceCounterDoc)
+  const invSnap = await tx.get(invRef)
+  if (!invSnap.exists() || invSnap.data().invoiceNumber) return
+  const number = nextInvoiceNumber(counterSnap)
+  tx.set(invoiceCounterDoc, { last: number }, { merge: true })
+  tx.update(invRef, { invoiceNumber: String(number) })
 })
 export const updateInvoice = (id, data) => updateDoc(doc(db, 'invoices', id), data)
 export const deleteInvoice = (id) => deleteDoc(doc(db, 'invoices', id))

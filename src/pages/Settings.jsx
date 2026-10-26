@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { listenSettings, saveSettings, FIRST_INVOICE_NUMBER } from '../lib/db'
 import UserManagement from '../components/UserManagement'
 import InvoiceDocument from '../components/InvoiceDocument'
-import { DEFAULT_WHATSAPP_MESSAGE, WHATSAPP_PLACEHOLDERS, fillWhatsAppMessage } from '../lib/helpers'
+import { DEFAULT_WHATSAPP_MESSAGE, WHATSAPP_PLACEHOLDERS, fillWhatsAppMessage, DEFAULT_INVOICE_THANK_YOU } from '../lib/helpers'
 
 const BILLING_DEFAULTS = {
   businessName: '', address: '', contactEmail: '', contactPhone: '',
-  bankName: '', accountHolder: '', accountNumber: '', branchCode: ''
+  bankName: '', accountHolder: '', accountNumber: '', branchCode: '',
+  thankYouMessage: DEFAULT_INVOICE_THANK_YOU
 }
 
 const TABS = [
@@ -218,6 +219,29 @@ function GeneralSettings() {
                 <label htmlFor="s-branch">Branch code</label>
                 <input id="s-branch" value={billing.branchCode} onChange={(e) => setBillingField('branchCode', e.target.value)} />
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-intro">
+            <h3>Invoice closing message</h3>
+            <p>Printed at the bottom of every invoice. Leave it empty to show nothing.</p>
+          </div>
+          <div>
+            <div className="field">
+              <label htmlFor="s-thanks">Message</label>
+              <textarea
+                id="s-thanks"
+                rows={3}
+                value={billing.thankYouMessage}
+                onChange={(e) => setBillingField('thankYouMessage', e.target.value)}
+              />
+            </div>
+            <div className="placeholder-row">
+              <button type="button" className="btn-link" onClick={() => setBillingField('thankYouMessage', DEFAULT_INVOICE_THANK_YOU)}>
+                Reset to default
+              </button>
             </div>
           </div>
         </section>
