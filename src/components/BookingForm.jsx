@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { findBookingClashes, formatDate } from '../lib/helpers'
 
 const DAYS = [
   { v: 0, l: 'Sun' }, { v: 1, l: 'Mon' }, { v: 2, l: 'Tue' }, { v: 3, l: 'Wed' },
   { v: 4, l: 'Thu' }, { v: 5, l: 'Fri' }, { v: 6, l: 'Sat' }
 ]
 
-export default function BookingForm({ initial, students, groups = [], defaultDate, onSubmit, onCancel }) {
+export default function BookingForm({ initial, students, groups = [], bookings = [], defaultDate, onSubmit, onCancel }) {
   const [form, setForm] = useState(() => initial ? { mode: 'inPerson', ...initial } : {
     type: 'individual',
     mode: 'inPerson',
@@ -58,6 +59,18 @@ export default function BookingForm({ initial, students, groups = [], defaultDat
 
   const setRateOverride = (studentId, rate) => {
     setForm((f) => ({ ...f, ratesOverride: { ...f.ratesOverride, [studentId]: Number(rate) || 0 } }))
+  }
+
+  // Warn (not block) about other lessons at overlapping times, so a double
+  // booking can still be made on purpose.
+  const clashes = useMemo(() => findBookingClashes(form, bookings, initial?.id), [form, bookings, initial])
+  const studentClashes = clashes.filter((c) => c.sharedStudentIds.length > 0)
+  const classClashes = clashes.filter((c) => c.sharedStudentIds.length === 0)
+  const nameOf = (id) => { const s = students.find((st) => st.id === id); return s ? `${s.firstName} ${s.lastName}` : 'A student' }
+  const whatOf = (b) => b.title || (b.type === 'group' ? 'Group lesson' : nameOf(b.studentIds?.[0]))
+  const datesText = (dates) => {
+    const shown = dates.slice(0, 3).map((d) => formatDate(d, 'EEE d MMM')).join(', ')
+    return dates.length > 3 ? `${shown} and ${dates.length - 3} more date${dates.length - 3 === 1 ? '' : 's'}` : shown
   }
 
   const submit = (e) => {
@@ -193,9 +206,27 @@ export default function BookingForm({ initial, students, groups = [], defaultDat
         </div>
       )}
 
+      {clashes.length > 0 && (
+        <div className="clash-box">
+          {studentClashes.map((c) => (
+            <p key={c.booking.id} className="clash-student">
+              ⚠ <strong>{c.sharedStudentIds.map(nameOf).join(', ')}</strong> {c.sharedStudentIds.length > 1 ? 'are' : 'is'} already
+              booked {c.booking.startTime}–{c.booking.endTime} <em>({whatOf(c.booking)})</em> on {datesText(c.dates)}.
+            </p>
+          ))}
+          {classClashes.map((c) => (
+            <p key={c.booking.id} className="clash-class">
+              ⚠ Another lesson is already on at {c.booking.startTime}–{c.booking.endTime} <em>({whatOf(c.booking)})</em> on {datesText(c.dates)}.
+            </p>
+          ))}
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
         <button type="button" className="btn btn-outline" onClick={onCancel}>Cancel</button>
-        <button type="submit" className="btn btn-accent" disabled={form.studentIds.length === 0}>{initial ? 'Save changes' : 'Add booking'}</button>
+        <button type="submit" className="btn btn-accent" disabled={form.studentIds.length === 0}>
+          {clashes.length > 0 ? 'Save anyway' : initial ? 'Save changes' : 'Add booking'}
+        </button>
       </div>
     </form>
   )

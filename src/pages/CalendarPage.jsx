@@ -104,7 +104,7 @@ export default function CalendarPage() {
           {monthDays.map((day) => {
             const iso = format(day, 'yyyy-MM-dd')
             const slots = bookingsOnDate(bookings, iso)
-            const shown = slots.slice(0, 2)
+            const shown = slots.slice(0, 3)
             const extra = slots.length - shown.length
             return (
               <div
@@ -145,6 +145,7 @@ export default function CalendarPage() {
             initial={modal === 'add' ? null : modal}
             students={students}
             groups={groups}
+            bookings={bookings}
             defaultDate={dateISO}
             onSubmit={handleSave}
             onCancel={() => setModal(null)}

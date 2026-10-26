@@ -470,7 +470,8 @@ table.ledger tr:hover td { background: #fafbf9; }
 
 .month-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* minmax(0, 1fr): long booking labels shrink with "…" instead of widening the page */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   border-top: 1px solid var(--paper-line);
   border-left: 1px solid var(--paper-line);
 }
@@ -484,7 +485,8 @@ table.ledger tr:hover td { background: #fafbf9; }
   background: #fafbf9;
 }
 .month-cell {
-  min-height: 96px;
+  min-height: 116px;
+  min-width: 0;
   border-right: 1px solid var(--paper-line);
   border-bottom: 1px solid var(--paper-line);
   padding: 6px 7px;
@@ -705,6 +707,11 @@ table.ledger tr:hover td { background: #fafbf9; }
 .editor-total strong { color: var(--ink); }
 
 .day-view { display: flex; flex-direction: column; gap: 10px; }
+/* Booking form: overlapping lessons */
+.clash-box { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.clash-box p { margin: 0; padding: 10px 12px; border-radius: var(--radius); font-size: 13.5px; line-height: 1.45; }
+.clash-student { background: var(--red-soft); color: var(--red); }
+.clash-class { background: var(--amber-soft); color: #8a5a17; }
 .day-slot {
   display: flex;
   justify-content: space-between;

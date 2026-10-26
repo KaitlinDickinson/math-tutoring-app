@@ -318,6 +318,34 @@ export function occursOnDate(booking, dateISO) {
   return booking.startDate === dateISO
 }
 
+/**
+ * Other bookings that overlap `booking` (a booking or the booking form) in
+ * time on at least one date both occur on. Each clash says which students
+ * are in both and the shared dates. Back-to-back (16:00 end, 16:00 start) is
+ * not a clash. Returns [{ booking, dates, sharedStudentIds }], earliest first.
+ */
+export function findBookingClashes(booking, bookings, excludeId = null) {
+  const { startTime, endTime, startDate, endDate } = booking
+  if (!startTime || !endTime || !startDate || !endDate || startTime >= endTime || startDate > endDate) return []
+  const clashes = []
+  bookings.forEach((other) => {
+    if (other.id === excludeId) return
+    if (!(startTime < other.endTime && other.startTime < endTime)) return
+    const from = startDate > other.startDate ? startDate : other.startDate
+    const to = endDate < other.endDate ? endDate : other.endDate
+    if (from > to) return
+    const dates = []
+    for (let d = parseISO(from); format(d, 'yyyy-MM-dd') <= to; d = addDays(d, 1)) {
+      const iso = format(d, 'yyyy-MM-dd')
+      if (occursOnDate(booking, iso) && occursOnDate(other, iso)) dates.push(iso)
+    }
+    if (dates.length === 0) return
+    const sharedStudentIds = (booking.studentIds || []).filter((id) => other.studentIds?.includes(id))
+    clashes.push({ booking: other, dates, sharedStudentIds })
+  })
+  return clashes.sort((a, b) => a.dates[0].localeCompare(b.dates[0]))
+}
+
 export function bookingsOnDate(bookings, dateISO) {
   return bookings
     .filter((b) => occursOnDate(b, dateISO))
