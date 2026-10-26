@@ -153,6 +153,65 @@ export function buildMonthlyInvoice(student, sessions, bookings, year, month, ex
   }
 }
 
+/**
+ * A student's account statement from their saved invoices, for the months
+ * `from` to `to` ({ year, month }, inclusive). Billed lessons and extra lines
+ * are charges; each invoice's recorded payment is a payment on its paid date.
+ * Anything dated before the range is rolled into the opening balance.
+ * Balances are positive when money is owed, negative when in credit.
+ */
+export function buildStatement(invoices, from, to) {
+  const pad = (n) => String(n).padStart(2, '0')
+  const startISO = `${from.year}-${pad(from.month + 1)}-01`
+  const endISO = format(new Date(to.year, to.month + 1, 0), 'yyyy-MM-dd')
+
+  const entries = []
+  invoices.forEach((inv) => {
+    inv.lineItems?.forEach((li) => {
+      if (li.notBilled || !li.amount) return
+      entries.push({ date: li.date, label: `${li.label}, ${li.durationHours} h`, charge: li.amount })
+    })
+    const monthEnd = format(new Date(inv.year, inv.month + 1, 0), 'yyyy-MM-dd')
+    inv.extraLines?.forEach((x) => {
+      if (x.amount) entries.push({ date: monthEnd, label: x.label || 'Adjustment', charge: x.amount })
+    })
+    if (inv.status === 'paid' && inv.paidDate) {
+      const ref = inv.paidReference ? ` (ref ${inv.paidReference})` : ''
+      entries.push({
+        date: inv.paidDate,
+        label: `Payment received${inv.paidMethod ? ` – ${inv.paidMethod}` : ''}${ref}`,
+        payment: inv.amountPaid ?? inv.total
+      })
+    }
+  })
+  // Charges before payments on the same day.
+  entries.sort((a, b) => a.date.localeCompare(b.date) || (a.payment ? 1 : 0) - (b.payment ? 1 : 0))
+
+  const net = (e) => (e.charge || 0) - (e.payment || 0)
+  const openingBalance = entries.filter((e) => e.date < startISO).reduce((sum, e) => sum + net(e), 0)
+  let balance = openingBalance
+  const rows = entries
+    .filter((e) => e.date >= startISO && e.date <= endISO)
+    .map((e) => { balance += net(e); return { ...e, balance } })
+
+  return {
+    startISO,
+    endISO,
+    openingBalance,
+    rows,
+    totalCharges: rows.reduce((sum, r) => sum + (r.charge || 0), 0),
+    totalPayments: rows.reduce((sum, r) => sum + (r.payment || 0), 0),
+    closingBalance: balance
+  }
+}
+
+/** "January – October 2026", or "October 2026" for a single month. */
+export function periodLabel(from, to) {
+  if (from.year === to.year && from.month === to.month) return monthLabel(from.year, from.month)
+  const start = format(new Date(from.year, from.month, 1), from.year === to.year ? 'MMMM' : 'MMMM yyyy')
+  return `${start} – ${monthLabel(to.year, to.month)}`
+}
+
 /** Every [year, month] (month 0-11) in which a student has a signed-in session. */
 export function monthsWithSessions(sessions, studentId) {
   const keys = new Set()

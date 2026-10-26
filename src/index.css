@@ -543,6 +543,28 @@ table.ledger tr:hover td { background: #fafbf9; }
 .picker-row { padding: 9px 12px; border-bottom: 1px solid #eef0eb; }
 .picker-row:last-child { border-bottom: none; }
 .picker-row .muted { margin-left: auto; }
+
+/* Statement pop-up: pick a student, then months + a page-style preview */
+.statement-pick { max-width: 480px; margin: 0 auto; }
+.statement-search { margin-bottom: 10px; }
+.statement-search input { padding: 12px 14px 12px 40px; font-size: 15px; border: 1px solid #cdd3de; border-radius: var(--radius); }
+.statement-pick-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 11px 14px; border: none; border-bottom: 1px solid #eef0eb;
+  background: none; font: inherit; color: var(--ink); text-align: left;
+}
+.statement-pick-row:last-child { border-bottom: none; }
+.statement-pick-row:hover { background: var(--accent-soft); }
+.statement-pick-row .muted { margin-left: auto; font-size: 12.5px; }
+.statement-controls {
+  display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end;
+  padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--paper-line);
+}
+.statement-controls .field { margin-bottom: 0; }
+.statement-controls .field:first-child { flex: 1; min-width: 200px; }
+.statement-student { display: flex; align-items: baseline; gap: 8px; padding: 10px 0; }
+.statement-preview { background: var(--paper); border: 1px solid var(--paper-line); border-radius: var(--radius); padding: 20px; overflow-x: auto; }
+.statement-sheet { margin: 0 auto; padding: 28px; background: var(--white); box-shadow: 0 2px 10px rgba(27, 42, 74, 0.08); box-sizing: content-box; }
 .picker-all { background: var(--paper); font-weight: 600; }
 .picker-all-box { border: 1px solid #cdd3de; border-radius: var(--radius); margin-bottom: 8px; }
 .group-add-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }

@@ -9,6 +9,7 @@ import {
 import InvoiceView from '../components/InvoiceView'
 import MarkPaidModal from '../components/MarkPaidModal'
 import InvoiceEditor from '../components/InvoiceEditor'
+import StatementModal from '../components/StatementModal'
 
 const TABS = [
   { key: 'outstanding', label: 'Outstanding' },
@@ -34,6 +35,7 @@ export default function Invoices() {
   const [markingPaid, setMarkingPaid] = useState(null)
   const [editing, setEditing] = useState(null) // { studentId, year, month }
   const [query, setQuery] = useState('')
+  const [showStatement, setShowStatement] = useState(false)
   const creating = useRef(new Set())
 
   useEffect(() => {
@@ -207,9 +209,14 @@ export default function Invoices() {
           <h1>Invoices</h1>
           <p>Built automatically from sign-ins and the calendar. Missed sessions are listed but not billed.</p>
         </div>
-        <button className="btn btn-outline" onClick={() => exportInvoicesCSV(exportRows)} disabled={exportRows.length === 0}>
-          Export CSV
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-outline" onClick={() => setShowStatement(true)} disabled={!loaded}>
+            Statement
+          </button>
+          <button className="btn btn-outline" onClick={() => exportInvoicesCSV(exportRows)} disabled={exportRows.length === 0}>
+            Export CSV
+          </button>
+        </div>
       </div>
 
       {numberingError && (
@@ -344,6 +351,14 @@ export default function Invoices() {
           onClose={() => setMarkingPaid(null)}
           onConfirm={handleMarkPaid}
           onMarkUnpaid={handleMarkUnpaid}
+        />
+      )}
+      {showStatement && (
+        <StatementModal
+          students={students}
+          invoices={[...invoiceByKey.values()]}
+          settings={settings}
+          onClose={() => setShowStatement(false)}
         />
       )}
       {editing && studentById.get(editing.studentId) && (
