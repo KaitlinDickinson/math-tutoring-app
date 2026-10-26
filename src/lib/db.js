@@ -1,5 +1,5 @@
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, getDoc, onSnapshot, query, orderBy, setDoc, writeBatch, runTransaction
+  collection, doc, addDoc, updateDoc, deleteDoc, getDoc, onSnapshot, query, orderBy, setDoc, writeBatch, runTransaction, arrayUnion, arrayRemove
 } from 'firebase/firestore'
 import { db } from '../firebase'
 function liveCollection(name, order) {
@@ -28,12 +28,18 @@ export const listenSessions = liveCollection('sessions', 'date')
 export const addSession = (data) => addDoc(collection(db, 'sessions'), data)
 export const updateSession = (id, data) => updateDoc(doc(db, 'sessions', id), data)
 export const deleteSession = (id) => deleteDoc(doc(db, 'sessions', id))
+// Online lessons: attendance records use a fixed id (see onlineSessionId) so
+// writing one twice, from two tabs say, can never make a duplicate.
+export const setOnlineSession = (id, data) => setDoc(doc(db, 'sessions', id), data)
 
 // ---------- Bookings (calendar) ----------
 export const listenBookings = liveCollection('bookings')
 export const addBooking = (data) => addDoc(collection(db, 'bookings'), data)
 export const updateBooking = (id, data) => updateDoc(doc(db, 'bookings', id), data)
 export const deleteBooking = (id) => deleteDoc(doc(db, 'bookings', id))
+// Online bookings keep a list of "date|studentId" for students unticked as absent.
+export const markOnlineAbsent = (bookingId, key) => updateDoc(doc(db, 'bookings', bookingId), { onlineAbsent: arrayUnion(key) })
+export const clearOnlineAbsent = (bookingId, key) => updateDoc(doc(db, 'bookings', bookingId), { onlineAbsent: arrayRemove(key) })
 
 // ---------- Student groups ({ name, studentIds }) ----------
 // Only used to fill in a booking's students quickly; bookings keep their own copy.

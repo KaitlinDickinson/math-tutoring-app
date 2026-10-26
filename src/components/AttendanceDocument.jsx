@@ -177,7 +177,7 @@ export default function AttendanceDocument({ sessions, studentOf, bookingFor, se
                   <td>
                     {s.signature
                       ? <img src={s.signature} alt="Signature" style={{ height: 30, display: 'block' }} />
-                      : <span className="muted">{s.manualEntry ? 'Manually added' : '—'}</span>}
+                      : <span className="muted">{s.online ? 'Online – marked by tutor' : s.manualEntry ? 'Manually added' : '—'}</span>}
                   </td>
                 </tr>
               )

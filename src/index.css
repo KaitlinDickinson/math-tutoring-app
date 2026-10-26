@@ -107,6 +107,11 @@ input, select, textarea {
   color: var(--ink-soft);
   text-transform: none;
 }
+/* Required fields get a red asterisk automatically from the input's `required`. */
+.field:has(> :is(input, select, textarea):required) > label::after {
+  content: ' *';
+  color: var(--red);
+}
 .field input, .field select, .field textarea {
   padding: 11px 12px;
   border: 1px solid #cdd3de;
@@ -292,6 +297,9 @@ table.ledger tr:hover td { background: #fafbf9; }
 .badge-unpaid { background: var(--amber-soft); color: var(--amber); }
 .badge-overdue { background: var(--red-soft); color: var(--red); }
 .badge-walkin { background: #eef1f7; color: var(--ink-soft); margin-right: 8px; }
+.badge-online { background: #e8eefb; color: #3a5a9c; margin-right: 8px; }
+.online-attendance { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font-size: 14px; }
+.online-attendance .checkbox-row .muted { margin-left: 6px; font-size: 12px; }
 .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
 /* ---------- Search ---------- */

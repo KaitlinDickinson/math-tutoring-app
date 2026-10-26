@@ -10,6 +10,7 @@ import Modal from '../components/Modal'
 import SessionForm from '../components/SessionForm'
 import AttendanceDocument from '../components/AttendanceDocument'
 import BlankSheetPicker from '../components/BlankSheetPicker'
+import useOnlineAttendance from '../lib/useOnlineAttendance'
 
 const now = new Date()
 const fullName = (st) => `${st.firstName} ${st.lastName}`
@@ -28,14 +29,20 @@ export default function Attendance() {
   const [pdfError, setPdfError] = useState('')
   const [sheetStudents, setSheetStudents] = useState([]) // who the blank sheets are for
   const docRef = useRef(null)
+  const [loaded, setLoaded] = useState({}) // which lists have arrived
 
   useEffect(() => {
-    const u1 = listenStudents(setStudents)
-    const u2 = listenSessions(setSessions)
-    const u3 = listenBookings(setBookings)
+    const got = (key, setter) => (data) => { setter(data); setLoaded((l) => (l[key] ? l : { ...l, [key]: true })) }
+    const u1 = listenStudents(got('students', setStudents))
+    const u2 = listenSessions(got('sessions', setSessions))
+    const u3 = listenBookings(got('bookings', setBookings))
     const u4 = listenSettings(setSettings)
     return () => { u1(); u2(); u3(); u4() }
   }, [])
+
+  // Only once everything has loaded, so it never mistakes "still loading" for "missing".
+  const allLoaded = loaded.students && loaded.sessions && loaded.bookings
+  useOnlineAttendance(allLoaded ? bookings : null, students, sessions)
 
   const studentOf = (id) => students.find((s) => s.id === id)
   // Same session -> booking matching the invoices use, so hours always agree.
@@ -191,7 +198,7 @@ export default function Attendance() {
                     <td>
                       {s.signature
                         ? <img src={s.signature} alt="Signature" style={{ height: 32, display: 'block' }} />
-                        : <span className="muted">{s.manualEntry ? 'Manually added' : '—'}</span>}
+                        : <span className="muted">{s.online ? 'Online – marked by tutor' : s.manualEntry ? 'Manually added' : '—'}</span>}
                     </td>
                     <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                       <button className="btn btn-outline btn-sm" onClick={() => setModal(s)}>Edit</button>{' '}

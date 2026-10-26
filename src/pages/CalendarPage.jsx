@@ -2,8 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addMonths, addWeeks, format, isSameMonth, isToday
 } from 'date-fns'
-import { listenStudents, listenBookings, listenGroups, addBooking, updateBooking, deleteBooking } from '../lib/db'
-import { bookingsOnDate } from '../lib/helpers'
+import {
+  listenStudents, listenBookings, listenGroups, listenSessions, addBooking, updateBooking, deleteBooking,
+  deleteSession, setOnlineSession, markOnlineAbsent, clearOnlineAbsent
+} from '../lib/db'
+import {
+  bookingsOnDate, todayISO, isOnlineBooking, onlineSessionId, onlineSessionData, onlineAbsentKey
+} from '../lib/helpers'
+import useOnlineAttendance from '../lib/useOnlineAttendance'
 import Modal from '../components/Modal'
 import BookingForm from '../components/BookingForm'
 
@@ -15,6 +21,7 @@ export default function CalendarPage() {
   const [students, setStudents] = useState([])
   const [bookings, setBookings] = useState([])
   const [groups, setGroups] = useState([])
+  const [sessions, setSessions] = useState(null)
   const [modal, setModal] = useState(null) // null | 'add' | booking (edit)
   const [confirmDelete, setConfirmDelete] = useState(null)
 
@@ -23,8 +30,11 @@ export default function CalendarPage() {
     const u2 = listenBookings(setBookings)
     // Groups are optional here: if they can't load, the form works without them.
     const u3 = listenGroups(setGroups, () => setGroups([]))
-    return () => { u1(); u2(); u3() }
+    const u4 = listenSessions(setSessions)
+    return () => { u1(); u2(); u3(); u4() }
   }, [])
+
+  useOnlineAttendance(bookings, students, sessions)
 
   const dateISO = format(cursor, 'yyyy-MM-dd')
 
@@ -49,6 +59,12 @@ export default function CalendarPage() {
   }
 
   const handleSave = async (data) => {
+    // Online lessons are auto-marked attended from `onlineSince`: a new booking
+    // from its start date, one switched to online only from today, so months
+    // of past lessons don't suddenly get billed.
+    if (isOnlineBooking(data) && (modal === 'add' || !isOnlineBooking(modal))) {
+      data = { ...data, onlineSince: modal === 'add' ? data.startDate : todayISO() }
+    }
     if (modal === 'add') await addBooking(data)
     // Saving a walk-in from the edit form counts as confirming its times.
     else await updateBooking(modal.id, modal.walkIn ? { ...data, needsTimeCheck: false } : data)
@@ -103,7 +119,7 @@ export default function CalendarPage() {
                 </span>
                 {shown.map((s) => (
                   <span key={s.id} className={`cell-slot ${s.walkIn ? 'walk-in' : ''}`}>
-                    {s.startTime} {s.walkIn && 'Walk-in: '}{s.title || (s.type === 'group' ? 'Group' : nameOf(s.studentIds[0]))}
+                    {s.startTime} {isOnlineBooking(s) && '💻 '}{s.walkIn && 'Walk-in: '}{s.title || (s.type === 'group' ? 'Group' : nameOf(s.studentIds[0]))}
                   </span>
                 ))}
                 {extra > 0 && <span className="cell-more">+{extra} more</span>}
@@ -116,6 +132,8 @@ export default function CalendarPage() {
           dateISO={dateISO}
           bookings={bookingsOnDate(bookings, dateISO)}
           nameOf={nameOf}
+          students={students}
+          sessions={sessions || []}
           onEdit={setModal}
           onDelete={setConfirmDelete}
         />
@@ -150,7 +168,53 @@ export default function CalendarPage() {
   )
 }
 
-function DayView({ dateISO, bookings, nameOf, onEdit, onDelete }) {
+// Online students don't sign in, so each one gets an Attended tick box,
+// ticked by default (see useOnlineAttendance). Unticking records them absent
+// so they aren't re-ticked, and removes the attendance record.
+function OnlineAttendance({ booking, dateISO, students, sessions, nameOf }) {
+  const [busy, setBusy] = useState(null)
+  if (dateISO > todayISO()) {
+    return <div className="online-attendance muted">Attendance can be marked from the day of the lesson.</div>
+  }
+  const absent = new Set(booking.onlineAbsent || [])
+
+  const toggle = async (studentId, attended) => {
+    const key = onlineAbsentKey(dateISO, studentId)
+    const id = onlineSessionId(booking.id, dateISO, studentId)
+    setBusy(studentId)
+    try {
+      if (attended) {
+        // Absent first, so the record isn't re-created in between.
+        await markOnlineAbsent(booking.id, key)
+        await deleteSession(id)
+      } else {
+        await clearOnlineAbsent(booking.id, key)
+        const student = students.find((s) => s.id === studentId)
+        if (student) await setOnlineSession(id, onlineSessionData(booking, dateISO, student))
+      }
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="online-attendance">
+      {booking.studentIds.map((sid) => {
+        const signedIn = sessions.some((s) => s.studentId === sid && s.date === dateISO && s.bookingId === booking.id && !s.online)
+        const attended = signedIn || (!absent.has(onlineAbsentKey(dateISO, sid)) && sessions.some((s) => s.id === onlineSessionId(booking.id, dateISO, sid)))
+        return (
+          <label key={sid} className="checkbox-row">
+            <input type="checkbox" checked={attended} disabled={signedIn || busy === sid} onChange={() => toggle(sid, attended)} />
+            {nameOf(sid)}
+            <span className="muted">{signedIn ? 'Signed in' : attended ? 'Attended' : 'Absent'}</span>
+          </label>
+        )
+      })}
+    </div>
+  )
+}
+
+function DayView({ dateISO, bookings, nameOf, students, sessions, onEdit, onDelete }) {
   if (bookings.length === 0) {
     return <div className="day-empty">No sessions booked for this day.</div>
   }
@@ -164,6 +228,7 @@ function DayView({ dateISO, bookings, nameOf, onEdit, onDelete }) {
               <span className="badge" style={{ background: b.type === 'group' ? 'var(--amber-soft)' : 'var(--accent-soft)', color: b.type === 'group' ? 'var(--amber)' : 'var(--accent)', marginRight: 8 }}>
                 {b.type === 'group' ? 'Group' : 'Individual'}
               </span>
+              {isOnlineBooking(b) && <span className="badge badge-online">💻 Online</span>}
               {b.walkIn && (
                 <span className="badge badge-walkin" title="Added at sign-in without a booking. The invoice uses these times.">
                   {b.needsTimeCheck ? 'Walk-in: check times' : 'Walk-in'}
@@ -172,6 +237,9 @@ function DayView({ dateISO, bookings, nameOf, onEdit, onDelete }) {
               {b.title && <strong>{b.title}: </strong>}
               {b.studentIds.map(nameOf).join(', ')}
             </div>
+            {isOnlineBooking(b) && (
+              <OnlineAttendance booking={b} dateISO={dateISO} students={students} sessions={sessions} nameOf={nameOf} />
+            )}
           </div>
           <div>
             <button className="btn btn-outline btn-sm" onClick={() => onEdit(b)}>Edit</button>{' '}

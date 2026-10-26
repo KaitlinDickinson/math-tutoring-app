@@ -68,8 +68,8 @@ export default function StudentForm({ initial, defaultRate, onSubmit, onCancel }
           <input required value={form.accountable.contact} onChange={(e) => set('accountable.contact', e.target.value)} />
         </div>
         <div className="field">
-          <label>Email address</label>
-          <input required type="email" value={form.accountable.email} onChange={(e) => set('accountable.email', e.target.value)} />
+          <label>Email address <span className="muted">(optional)</span></label>
+          <input type="email" value={form.accountable.email} onChange={(e) => set('accountable.email', e.target.value)} />
         </div>
       </div>
 

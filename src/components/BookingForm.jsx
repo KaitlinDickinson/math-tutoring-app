@@ -6,8 +6,9 @@ const DAYS = [
 ]
 
 export default function BookingForm({ initial, students, groups = [], defaultDate, onSubmit, onCancel }) {
-  const [form, setForm] = useState(() => initial || {
+  const [form, setForm] = useState(() => initial ? { mode: 'inPerson', ...initial } : {
     type: 'individual',
+    mode: 'inPerson',
     title: '',
     startTime: '10:00',
     endTime: '11:00',
@@ -73,6 +74,17 @@ export default function BookingForm({ initial, students, groups = [], defaultDat
           <button type="button" className={`pill ${form.type === 'individual' ? 'active' : ''}`} onClick={() => set('type', 'individual')}>Individual lesson</button>
           <button type="button" className={`pill ${form.type === 'group' ? 'active' : ''}`} onClick={() => set('type', 'group')}>Group lesson</button>
         </div>
+      </div>
+
+      <div className="field">
+        <label>Lesson format</label>
+        <div className="pill-row">
+          <button type="button" className={`pill ${form.mode !== 'online' ? 'active' : ''}`} onClick={() => set('mode', 'inPerson')}>In person</button>
+          <button type="button" className={`pill ${form.mode === 'online' ? 'active' : ''}`} onClick={() => set('mode', 'online')}>Online</button>
+        </div>
+        {form.mode === 'online' && (
+          <span className="field-hint">Online students don't sign in. Each lesson is marked attended automatically. Untick anyone absent in the Calendar's Day view.</span>
+        )}
       </div>
 
       <div className="field">

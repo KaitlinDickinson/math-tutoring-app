@@ -255,6 +255,57 @@ function findMissedSessions(student, bookings, monthSessions, links, year, month
   return missed.sort((a, b) => (a.date < b.date ? -1 : 1))
 }
 
+// ---------- Online lessons ----------
+// Online students can't sign in at the kiosk, so every online lesson up to
+// today counts as attended by default; the tutor unticks anyone absent.
+
+export const isOnlineBooking = (booking) => booking?.mode === 'online'
+export const onlineSessionId = (bookingId, dateISO, studentId) => `online_${bookingId}_${dateISO}_${studentId}`
+export const onlineAbsentKey = (dateISO, studentId) => `${dateISO}|${studentId}`
+
+/** The attendance record a ticked online lesson stands for. */
+export function onlineSessionData(booking, dateISO, student) {
+  return {
+    studentId: student.id,
+    date: dateISO,
+    checkInTime: `${dateISO}T${booking.startTime}:00`,
+    signature: null,
+    online: true,
+    sessionType: booking.type || 'individual',
+    durationHours: durationHours(booking.startTime, booking.endTime),
+    rate: booking.ratesOverride?.[student.id] ?? student.hourlyRate ?? 0,
+    bookingId: booking.id,
+    bookingTitle: booking.title || null
+  }
+}
+
+/**
+ * Online-lesson attendance records that should exist but don't yet: one per
+ * student per occurrence, from when the booking went online up to today,
+ * skipping anyone unticked as absent. Returns [{ id, data }].
+ */
+export function missingOnlineSessions(bookings, students, sessions, today = todayISO()) {
+  const sessionIds = new Set(sessions.map((s) => s.id))
+  const studentById = new Map(students.map((s) => [s.id, s]))
+  const missing = []
+  bookings.filter(isOnlineBooking).forEach((b) => {
+    const from = [b.startDate, b.onlineSince].filter(Boolean).sort().pop()
+    const to = b.endDate < today ? b.endDate : today
+    const absent = new Set(b.onlineAbsent || [])
+    for (let d = parseISO(from); format(d, 'yyyy-MM-dd') <= to; d = addDays(d, 1)) {
+      const iso = format(d, 'yyyy-MM-dd')
+      if (!occursOnDate(b, iso)) continue
+      ;(b.studentIds || []).forEach((sid) => {
+        const student = studentById.get(sid)
+        const id = onlineSessionId(b.id, iso, sid)
+        if (!student || absent.has(onlineAbsentKey(iso, sid)) || sessionIds.has(id)) return
+        missing.push({ id, data: onlineSessionData(b, iso, student) })
+      })
+    }
+  })
+  return missing
+}
+
 /** Does a booking (with possible repeat rule) occur on the given ISO date? */
 export function occursOnDate(booking, dateISO) {
   if (dateISO < booking.startDate || dateISO > booking.endDate) return false
@@ -462,7 +513,7 @@ export function exportAttendanceCSV(sessions, students, bookings, filename = `at
       DurationHours: sessionHours(s, booking),
       RateCharged: s.rate,
       Billed: s.notBilled ? 'No' : 'Yes',
-      Signed: s.signature ? 'Yes' : 'No'
+      Signed: s.signature ? 'Yes' : s.online ? 'Online' : 'No'
     }
   })
   downloadCSV(filename, rows)

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listenStudents, listenBookings, addSession, addBooking } from '../lib/db'
-import { todayISO, nowStamp, bookingsOnDate, durationHours } from '../lib/helpers'
+import { todayISO, nowStamp, bookingsOnDate, durationHours, isOnlineBooking } from '../lib/helpers'
 import SignaturePad from '../components/SignaturePad'
 import Modal from '../components/Modal'
 
@@ -39,7 +39,7 @@ export default function Kiosk() {
   // Bookings that occur today and include the selected student
   const todaysSlotsForStudent = useMemo(() => {
     if (!selected) return []
-    return bookingsOnDate(bookings, todayISO()).filter((b) => b.studentIds?.includes(selected.id))
+    return bookingsOnDate(bookings, todayISO()).filter((b) => !isOnlineBooking(b) && b.studentIds?.includes(selected.id))
   }, [selected, bookings])
 
   // With exactly one booking today there's nothing to choose, so pick it.

@@ -10,6 +10,7 @@ import InvoiceView from '../components/InvoiceView'
 import MarkPaidModal from '../components/MarkPaidModal'
 import InvoiceEditor from '../components/InvoiceEditor'
 import StatementModal from '../components/StatementModal'
+import useOnlineAttendance from '../lib/useOnlineAttendance'
 
 const TABS = [
   { key: 'outstanding', label: 'Outstanding' },
@@ -48,6 +49,7 @@ export default function Invoices() {
   }, [])
 
   const loaded = students && sessions && bookings && invoices
+  useOnlineAttendance(bookings, students, sessions)
   const studentById = useMemo(() => new Map((students || []).map((s) => [s.id, s])), [students])
 
   // Saved invoices by student + month. Deleted students' invoices are kept
