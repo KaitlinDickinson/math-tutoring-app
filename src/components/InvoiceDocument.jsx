@@ -12,7 +12,7 @@ export default function InvoiceDocument({ invoice, settings }) {
   return (
     <>
       {settings?.logo && (
-        <img src={settings.logo} alt={billing.businessName || 'Company logo'} style={{ display: 'block', width: '100%', height: 'auto', marginBottom: 16 }} />
+        <img src={settings.logo} alt={billing.businessName || 'Company logo'} className="doc-logo" />
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>

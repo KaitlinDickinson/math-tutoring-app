@@ -552,6 +552,10 @@ table.ledger tr:hover td { background: #fafbf9; }
 .picker-row:last-child { border-bottom: none; }
 .picker-row .muted { margin-left: auto; }
 
+/* Logo at the top of invoices and statements. Kept small enough that the
+   stored image (max 900px wide) stays sharp in the 2x-resolution PDF. */
+.doc-logo { display: block; max-width: 360px; max-height: 140px; width: auto; height: auto; margin: 0 auto 18px; }
+
 /* Statement pop-up: pick a student, then months + a page-style preview */
 .statement-pick { max-width: 480px; margin: 0 auto; }
 .statement-search { margin-bottom: 10px; }

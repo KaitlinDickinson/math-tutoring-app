@@ -17,7 +17,9 @@ const TABS = [
 
 // Images are stored inside the settings document itself (Firestore docs max
 // out at 1MB and Firebase Storage isn't on the free plan), so shrink them first.
-const LOGO_SIZE = { maxW: 480, maxH: 200 }
+// The logo prints at up to 360px wide and PDFs render at 2x, so keep over 2x that
+// for it to stay sharp.
+const LOGO_SIZE = { maxW: 900, maxH: 360 }
 // The watermark prints faintly on white paper, so a white-backed JPEG keeps
 // it small enough to sit in the same document as the logo.
 const WATERMARK_SIZE = { maxW: 600, maxH: 600, jpeg: true }
