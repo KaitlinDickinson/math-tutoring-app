@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { differenceInCalendarDays } from 'date-fns'
 import {
-  listenStudents, listenSessions, listenBookings, listenInvoices, listenSettings, addNumberedInvoice, numberExistingInvoices, updateInvoice, FIRST_NUMBERED_MONTH
+  listenStudents, listenSessions, listenBookings, listenInvoices, listenSettings, addNumberedInvoice, numberExistingInvoices, ensureNumberingScheme, updateInvoice, FIRST_NUMBERED_MONTH
 } from '../lib/db'
 import {
   buildMonthlyInvoice, monthsWithSessions, formatCurrency, monthLabel, exportInvoicesCSV, nowStamp
@@ -51,6 +51,23 @@ export default function Invoices() {
   }, [])
 
   const loaded = students && sessions && bookings && invoices
+  const usedNumbers = useMemo(() => new Set((invoices || []).map((inv) => inv.invoiceNumber).filter(Boolean)), [invoices])
+
+  // Numbering waits until the one-off restart (see ensureNumberingScheme) is
+  // confirmed, so nothing is numbered under the old scheme.
+  const [numberingReady, setNumberingReady] = useState(false)
+  const [numberingError, setNumberingError] = useState('')
+  const checkedScheme = useRef(false)
+  useEffect(() => {
+    if (!invoices || checkedScheme.current) return
+    checkedScheme.current = true
+    ensureNumberingScheme(invoices.filter((inv) => inv.invoiceNumber).map((inv) => inv.id))
+      .then(() => setNumberingReady(true))
+      .catch((err) => {
+        console.error('Restarting invoice numbers failed:', err)
+        setNumberingError(err.message || String(err))
+      })
+  }, [invoices])
   useOnlineAttendance(bookings, students, sessions)
   const studentById = useMemo(() => new Map((students || []).map((s) => [s.id, s])), [students])
 
@@ -87,13 +104,13 @@ export default function Invoices() {
   // unpaid invoices follow any change to sign-ins or the calendar. Paid
   // invoices are never touched.
   useEffect(() => {
-    if (!loaded) return
+    if (!loaded || !numberingReady) return
     previewByKey.forEach((preview, k) => {
       const existing = invoiceByKey.get(k)
       if (!existing) {
         if (preview.sessionCount === 0 || creating.current.has(k)) return
         creating.current.add(k)
-        addNumberedInvoice({ ...preview, accountable: preview.accountable ?? null, status: 'unpaid', generatedAt: nowStamp() })
+        addNumberedInvoice({ ...preview, accountable: preview.accountable ?? null, status: 'unpaid', generatedAt: nowStamp() }, usedNumbers)
           .catch(() => creating.current.delete(k))
         return
       }
@@ -102,35 +119,35 @@ export default function Invoices() {
         updateInvoice(existing.id, Object.fromEntries(SYNCED_FIELDS.map((f) => [f, preview[f] ?? null])))
       }
     })
-  }, [loaded, previewByKey, invoiceByKey])
+  }, [loaded, numberingReady, previewByKey, invoiceByKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Invoices saved before numbering began (October 2026 onward only) get
-  // numbers once, in student-name order, all in one transaction.
+  // Invoices from October 2026 onward without a number get one: month by
+  // month, in student-name order, all in one transaction.
   const numbering = useRef(false)
-  const [numberingError, setNumberingError] = useState('')
   useEffect(() => {
-    if (numbering.current) return
+    if (!numberingReady || numbering.current) return
     const { year: fy, month: fm } = FIRST_NUMBERED_MONTH
     const unnumbered = [...invoiceByKey.values()]
       .filter((inv) => !inv.invoiceNumber && (inv.year > fy || (inv.year === fy && inv.month >= fm)))
       .sort((a, b) => (a.year - b.year) || (a.month - b.month) || (a.studentName || '').localeCompare(b.studentName || ''))
     if (unnumbered.length === 0) return
     numbering.current = true
-    numberExistingInvoices(unnumbered.slice(0, 400).map((inv) => inv.id))
+    numberExistingInvoices(unnumbered.slice(0, 400).map((inv) => inv.id), usedNumbers)
       .then(() => setNumberingError(''))
       .catch((err) => {
         console.error('Numbering invoices failed:', err)
         setNumberingError(err.message || String(err))
       })
       .finally(() => { numbering.current = false })
-  }, [invoiceByKey])
+  }, [numberingReady, invoiceByKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const isCurrentMonth = (inv) => inv.year === today.getFullYear() && inv.month === today.getMonth()
 
   // One search box for both tabs; totals follow it, so searching a name
   // shows what that student owes / was billed.
   const q = query.trim().toLowerCase()
-  const matches = (name) => !q || (name || '').toLowerCase().includes(q)
+  // Matches a student's name or an invoice number.
+  const matches = (...fields) => !q || fields.some((f) => (f || '').toLowerCase().includes(q))
 
   const allOutstanding = useMemo(() => [...invoiceByKey.values()]
     .filter((inv) => inv.status !== 'paid' && inv.total > 0)
@@ -138,7 +155,7 @@ export default function Invoices() {
   [invoiceByKey])
 
   const outstanding = useMemo(() => {
-    const list = allOutstanding.filter((inv) => matches(inv.studentName))
+    const list = allOutstanding.filter((inv) => matches(inv.studentName, inv.invoiceNumber))
     const total = list.reduce((sum, inv) => sum + inv.total, 0)
     const inProgress = list.filter(isCurrentMonth).reduce((sum, inv) => sum + inv.total, 0)
     return { list, total, inProgress }
@@ -156,7 +173,7 @@ export default function Invoices() {
         return { student, invoice, preview }
       })
       .filter((r) => r.invoice || r.preview.sessionCount > 0 || r.preview.missedCount > 0)
-      .filter((r) => matches(r.preview.studentName))
+      .filter((r) => matches(r.preview.studentName, r.invoice?.invoiceNumber))
       .sort((a, b) => a.preview.studentName.localeCompare(b.preview.studentName))
   }, [loaded, students, sessions, bookings, invoiceByKey, previewByKey, cursor, q])
 
@@ -200,7 +217,7 @@ export default function Invoices() {
   const searchBox = (
     <div className="search-wrap" style={{ maxWidth: 280, flex: 1 }}>
       <span className="search-icon">🔍</span>
-      <input placeholder="Search student…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search student" />
+      <input placeholder="Search student or invoice no.…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search student or invoice number" />
     </div>
   )
 
@@ -346,7 +363,7 @@ export default function Invoices() {
       )}
 
       {liveViewing && (
-        <InvoiceView invoice={liveViewing} settings={settings} onClose={() => setViewing(null)} onMarkPaid={setMarkingPaid} />
+        <InvoiceView invoice={liveViewing} settings={settings} usedNumbers={usedNumbers} onClose={() => setViewing(null)} onMarkPaid={setMarkingPaid} />
       )}
       {markingPaid && (
         <MarkPaidModal

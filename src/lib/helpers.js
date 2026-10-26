@@ -26,6 +26,14 @@ export function nowStamp() {
   return new Date().toISOString()
 }
 
+/** Numbering restarted in October 2026 at 2603; every later year starts at 01. */
+export const firstInvoiceSeq = (year) => (year === 2026 ? 3 : 1)
+
+/** 2026 + 3 -> "2603", 2026 + 123 -> "26123", 2027 + 1 -> "2701". */
+export function formatInvoiceNumber(year, seq) {
+  return `${String(year).slice(-2)}${String(seq).padStart(2, '0')}`
+}
+
 export const DEFAULT_INVOICE_THANK_YOU =
   'Thank you for your support! Together, we’re adding confidence, multiplying knowledge and making a difference.'
 

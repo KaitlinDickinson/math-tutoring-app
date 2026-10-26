@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import InvoiceDocument from './InvoiceDocument'
+import { setInvoiceNumber } from '../lib/db'
 import {
   fillWhatsAppMessage, whatsAppLink, whatsAppNumber, invoiceFileName, invoicePdfBlob, downloadBlob
 } from '../lib/helpers'
@@ -10,7 +11,7 @@ import {
 const canShareFiles = (file) =>
   navigator.maxTouchPoints > 0 && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })
 
-export default function InvoiceView({ invoice, settings, onClose, onMarkPaid }) {
+export default function InvoiceView({ invoice, settings, usedNumbers, onClose, onMarkPaid }) {
   const docRef = useRef(null)
   const [pdf, setPdf] = useState(null)
   const [pdfError, setPdfError] = useState(false)
@@ -65,6 +66,7 @@ export default function InvoiceView({ invoice, settings, onClose, onMarkPaid }) 
           <h3>Invoice — {invoice.studentName}</h3>
           <button className="modal-close" onClick={onClose}>&times;</button>
         </div>
+        <InvoiceNumberBar invoice={invoice} usedNumbers={usedNumbers} />
         <div className="modal-body print-area">
           <div ref={docRef} style={{ background: '#fff' }}>
             <InvoiceDocument invoice={invoice} settings={settings} />
@@ -88,6 +90,53 @@ export default function InvoiceView({ invoice, settings, onClose, onMarkPaid }) 
           <button className="btn btn-outline" onClick={() => window.print()}>Print</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Lets the tutor type in a number, e.g. to match invoices made by hand
+// before the app numbered them. Numbers must be unique.
+function InvoiceNumberBar({ invoice, usedNumbers }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const start = () => { setValue(invoice.invoiceNumber || ''); setError(''); setEditing(true) }
+  const save = async (e) => {
+    e.preventDefault()
+    const number = value.trim()
+    if (number && number !== invoice.invoiceNumber && usedNumbers?.has(number)) {
+      setError(`${number} is already used by another invoice.`)
+      return
+    }
+    setSaving(true)
+    try {
+      await setInvoiceNumber(invoice.id, number)
+      setEditing(false)
+    } catch (err) {
+      setError(`Couldn't save: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="invoice-number-bar no-print">
+      {editing ? (
+        <form onSubmit={save} className="invoice-number-form">
+          <label htmlFor="inv-no">Invoice no.</label>
+          <input id="inv-no" autoFocus value={value} onChange={(e) => { setValue(e.target.value); setError('') }} placeholder="e.g. 2601" />
+          <button type="submit" className="btn btn-accent btn-sm" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+          <button type="button" className="btn btn-outline btn-sm" onClick={() => setEditing(false)}>Cancel</button>
+          {error && <span className="invoice-number-error">{error}</span>}
+        </form>
+      ) : (
+        <>
+          <span>Invoice no. <strong>{invoice.invoiceNumber || '—'}</strong></span>
+          <button type="button" className="btn-link" onClick={start}>✎ {invoice.invoiceNumber ? 'Edit' : 'Add number'}</button>
+        </>
+      )}
     </div>
   )
 }

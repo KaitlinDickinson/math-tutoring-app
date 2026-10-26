@@ -1,7 +1,8 @@
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, getDoc, onSnapshot, query, orderBy, setDoc, writeBatch, runTransaction, arrayUnion, arrayRemove
+  collection, doc, addDoc, updateDoc, deleteDoc, getDoc, onSnapshot, query, orderBy, setDoc, writeBatch, runTransaction, arrayUnion, arrayRemove, deleteField
 } from 'firebase/firestore'
 import { db } from '../firebase'
+import { formatInvoiceNumber, firstInvoiceSeq } from './helpers'
 function liveCollection(name, order) {
   return (callback, onError) => {
     const q = order ? query(collection(db, name), orderBy(order)) : collection(db, name)
@@ -52,38 +53,63 @@ export const deleteGroup = (id) => deleteDoc(doc(db, 'groups', id))
 export const listenInvoices = liveCollection('invoices')
 export const addInvoice = (data) => addDoc(collection(db, 'invoices'), data)
 
-// Hands out the next invoice number (2603, 2604, …) from a counter in
-// settings/invoiceCounter. A transaction keeps two tutors with the app open
-// from ever getting the same number.
+// Invoice numbers start with the two-digit year of the month billed, then a
+// count that restarts each year: 2603, 2604 … 2699, 26100 … then 2701, 2702 …
+// The counts live in settings/invoiceCounter as { y2026: 3, … }; transactions
+// keep two tutors with the app open from ever getting the same number.
 const invoiceCounterDoc = doc(db, 'settings', 'invoiceCounter')
-export const FIRST_INVOICE_NUMBER = 2603
 // Invoices for this month onward get numbers; earlier months stay unnumbered.
 export const FIRST_NUMBERED_MONTH = { year: 2026, month: 9 } // October 2026 (months are 0-based)
+// Bumped when numbering is restarted; see ensureNumberingScheme.
+const NUMBERING_SCHEME = 'yearly-2026-10'
 
-const nextInvoiceNumber = (counterSnap) =>
-  Math.max((counterSnap.exists() ? counterSnap.data().last || 0 : 0) + 1, FIRST_INVOICE_NUMBER)
+const counterField = (year) => `y${year}`
+// The next free count for a year, stepping over numbers already typed in by hand.
+function nextSeq(counts, year, used) {
+  let seq = (counts[counterField(year)] || firstInvoiceSeq(year) - 1) + 1
+  while (used.has(formatInvoiceNumber(year, seq))) seq += 1
+  return seq
+}
 
-export const addNumberedInvoice = (data) => runTransaction(db, async (tx) => {
-  const number = nextInvoiceNumber(await tx.get(invoiceCounterDoc))
+// `used`: every invoice number already taken (a Set), from the invoice list.
+export const addNumberedInvoice = (data, used = new Set()) => runTransaction(db, async (tx) => {
+  const snap = await tx.get(invoiceCounterDoc)
+  const seq = nextSeq(snap.exists() ? snap.data() : {}, data.year, used)
   const ref = doc(collection(db, 'invoices'))
-  tx.set(invoiceCounterDoc, { last: number }, { merge: true })
-  tx.set(ref, { ...data, invoiceNumber: String(number) })
+  tx.set(invoiceCounterDoc, { [counterField(data.year)]: seq }, { merge: true })
+  tx.set(ref, { ...data, invoiceNumber: formatInvoiceNumber(data.year, seq) })
 })
 
-// Gives invoices saved before numbering began their numbers, in the order of
-// `ids`, all in one transaction. Any that already have a number are skipped.
-export const numberExistingInvoices = (ids) => runTransaction(db, async (tx) => {
+// Numbers invoices that don't have one yet, in the order of `ids`, in one
+// transaction. Any that already have a number are skipped.
+export const numberExistingInvoices = (ids, used = new Set()) => runTransaction(db, async (tx) => {
   const counterSnap = await tx.get(invoiceCounterDoc)
   const refs = ids.map((id) => doc(db, 'invoices', id))
   const snaps = await Promise.all(refs.map((ref) => tx.get(ref)))
-  let number = nextInvoiceNumber(counterSnap) - 1
+  const counts = { ...(counterSnap.exists() ? counterSnap.data() : {}) }
   snaps.forEach((snap, i) => {
     if (!snap.exists() || snap.data().invoiceNumber) return
-    number += 1
-    tx.update(refs[i], { invoiceNumber: String(number) })
+    const { year } = snap.data()
+    const seq = nextSeq(counts, year, used)
+    counts[counterField(year)] = seq
+    tx.update(refs[i], { invoiceNumber: formatInvoiceNumber(year, seq) })
   })
-  if (number >= FIRST_INVOICE_NUMBER) tx.set(invoiceCounterDoc, { last: number }, { merge: true })
+  tx.set(invoiceCounterDoc, counts)
 })
+
+// One-off restart of numbering: the first time a tutor opens Invoices on this
+// version, every number is wiped and the counts reset, then the Invoices page
+// renumbers from October 2026. Resolves once the scheme is in place.
+export const ensureNumberingScheme = (numberedIds) => runTransaction(db, async (tx) => {
+  const snap = await tx.get(invoiceCounterDoc)
+  if (snap.exists() && snap.data().scheme === NUMBERING_SCHEME) return
+  if (numberedIds.length > 490) throw new Error('Too many invoices to renumber in one go.')
+  numberedIds.forEach((id) => tx.update(doc(db, 'invoices', id), { invoiceNumber: deleteField() }))
+  tx.set(invoiceCounterDoc, { scheme: NUMBERING_SCHEME })
+})
+// Set by hand (e.g. to match invoices made outside the app); '' removes it.
+export const setInvoiceNumber = (id, number) =>
+  updateDoc(doc(db, 'invoices', id), { invoiceNumber: number || deleteField() })
 export const updateInvoice = (id, data) => updateDoc(doc(db, 'invoices', id), data)
 export const deleteInvoice = (id) => deleteDoc(doc(db, 'invoices', id))
 

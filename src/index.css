@@ -561,6 +561,13 @@ table.ledger tr:hover td { background: #fafbf9; }
    stored image (max 900px wide) stays sharp in the 2x-resolution PDF. */
 .doc-logo { display: block; max-width: 360px; max-height: 140px; width: auto; height: auto; margin: 0 auto 18px; }
 
+/* Invoice pop-up: number bar above the invoice */
+.invoice-number-bar { display: flex; align-items: center; gap: 10px; padding: 10px 22px; border-bottom: 1px solid var(--paper-line); background: var(--paper); font-size: 14px; }
+.invoice-number-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.invoice-number-form label { font-weight: 600; }
+.invoice-number-form input { width: 130px; padding: 6px 10px; border: 1px solid #cdd3de; border-radius: var(--radius); }
+.invoice-number-error { color: var(--red); font-size: 13px; }
+
 /* Statement pop-up: pick a student, then months + a page-style preview */
 .statement-pick { max-width: 480px; margin: 0 auto; }
 .statement-search { margin-bottom: 10px; }
