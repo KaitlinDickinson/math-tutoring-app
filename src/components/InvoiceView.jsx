@@ -18,6 +18,9 @@ export default function InvoiceView({ invoice, settings, onClose, onMarkPaid }) 
 
   // Build the PDF as soon as the invoice opens. iPad Safari only allows the
   // share sheet straight after a tap, so it has to be ready before then.
+  // Keyed on the content, not the objects: the invoice list hands us a fresh
+  // copy whenever any invoice changes, which would restart the PDF each time.
+  const contentKey = JSON.stringify([invoice, settings])
   useEffect(() => {
     let cancelled = false
     setPdf(null)
@@ -26,7 +29,7 @@ export default function InvoiceView({ invoice, settings, onClose, onMarkPaid }) 
       .then((blob) => { if (!cancelled) setPdf(blob) })
       .catch(() => { if (!cancelled) setPdfError(true) })
     return () => { cancelled = true }
-  }, [invoice, settings])
+  }, [contentKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const phone = invoice.accountable?.contact
   const filename = invoiceFileName(invoice)

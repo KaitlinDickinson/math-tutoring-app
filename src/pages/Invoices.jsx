@@ -45,6 +45,8 @@ export default function Invoices() {
     const u3 = listenInvoices(setInvoices)
     const u4 = listenBookings(setBookings)
     const u5 = listenSettings(setSettings)
+    // Fetch the PDF library early so opening an invoice doesn't wait for it.
+    import('html2pdf.js').catch(() => {})
     return () => { u1(); u2(); u3(); u4(); u5() }
   }, [])
 
