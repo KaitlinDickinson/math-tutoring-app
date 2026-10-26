@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { differenceInCalendarDays } from 'date-fns'
 import {
-  listenStudents, listenSessions, listenBookings, listenInvoices, listenSettings, addNumberedInvoice, numberExistingInvoice, updateInvoice, FIRST_NUMBERED_MONTH
+  listenStudents, listenSessions, listenBookings, listenInvoices, listenSettings, addNumberedInvoice, numberExistingInvoices, updateInvoice, FIRST_NUMBERED_MONTH
 } from '../lib/db'
 import {
   buildMonthlyInvoice, monthsWithSessions, formatCurrency, monthLabel, exportInvoicesCSV, nowStamp
@@ -98,20 +98,25 @@ export default function Invoices() {
     })
   }, [loaded, previewByKey, invoiceByKey])
 
-  // Invoices saved before numbering began (October 2026 onward only) get a
-  // number once, in student-name order, one at a time so the order holds.
+  // Invoices saved before numbering began (October 2026 onward only) get
+  // numbers once, in student-name order, all in one transaction.
   const numbering = useRef(false)
+  const [numberingError, setNumberingError] = useState('')
   useEffect(() => {
     if (numbering.current) return
     const { year: fy, month: fm } = FIRST_NUMBERED_MONTH
     const unnumbered = [...invoiceByKey.values()]
       .filter((inv) => !inv.invoiceNumber && (inv.year > fy || (inv.year === fy && inv.month >= fm)))
-      .sort((a, b) => (a.year - b.year) || (a.month - b.month) || a.studentName.localeCompare(b.studentName))
+      .sort((a, b) => (a.year - b.year) || (a.month - b.month) || (a.studentName || '').localeCompare(b.studentName || ''))
     if (unnumbered.length === 0) return
     numbering.current = true
-    ;(async () => {
-      for (const inv of unnumbered) await numberExistingInvoice(inv.id)
-    })().catch(() => {}).finally(() => { numbering.current = false })
+    numberExistingInvoices(unnumbered.slice(0, 400).map((inv) => inv.id))
+      .then(() => setNumberingError(''))
+      .catch((err) => {
+        console.error('Numbering invoices failed:', err)
+        setNumberingError(err.message || String(err))
+      })
+      .finally(() => { numbering.current = false })
   }, [invoiceByKey])
 
   const isCurrentMonth = (inv) => inv.year === today.getFullYear() && inv.month === today.getMonth()
@@ -207,6 +212,12 @@ export default function Invoices() {
         </button>
       </div>
 
+      {numberingError && (
+        <p style={{ color: 'var(--red)', marginBottom: 12 }}>
+          Invoice numbers couldn't be added: {numberingError}
+        </p>
+      )}
+
       <div className="tab-bar" role="tablist">
         {TABS.map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={tab === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>
@@ -237,7 +248,7 @@ export default function Invoices() {
             <div className="table-scroll">
               <table className="ledger invoice-table">
                 <thead>
-                  <tr><th>Student</th><th>Month</th><th>Sessions</th><th>Amount</th><th>Waiting</th><th /></tr>
+                  <tr><th>Invoice no.</th><th>Student</th><th>Month</th><th>Sessions</th><th>Amount</th><th>Waiting</th><th /></tr>
                 </thead>
                 <tbody>
                   {outstanding.list.map((inv) => (
@@ -252,7 +263,7 @@ export default function Invoices() {
                     />
                   ))}
                   {outstanding.list.length === 0 && (
-                    <tr><td colSpan={6}><div className="empty-state">
+                    <tr><td colSpan={7}><div className="empty-state">
                       {q ? `No outstanding invoices for "${query.trim()}".` : 'Nobody owes anything right now.'}
                     </div></td></tr>
                   )}
@@ -283,7 +294,7 @@ export default function Invoices() {
             <div className="table-scroll">
               <table className="ledger invoice-table">
                 <thead>
-                  <tr><th>Student</th><th>Sessions</th><th>Amount</th><th>Status</th><th /></tr>
+                  <tr><th>Invoice no.</th><th>Student</th><th>Sessions</th><th>Amount</th><th>Status</th><th /></tr>
                 </thead>
                 <tbody>
                   {monthRows.map(({ student, invoice, preview }) => (
@@ -298,6 +309,7 @@ export default function Invoices() {
                       />
                     ) : (
                       <tr key={student.id} className="invoice-row-empty">
+                        <td className="muted">—</td>
                         <td><strong>{preview.studentName}</strong></td>
                         <td><SessionSummary inv={preview} /></td>
                         <td className="muted">—</td>
@@ -309,7 +321,7 @@ export default function Invoices() {
                     )
                   ))}
                   {monthRows.length === 0 && (
-                    <tr><td colSpan={5}><div className="empty-state">
+                    <tr><td colSpan={6}><div className="empty-state">
                       {q
                         ? `No sessions for "${query.trim()}" in ${monthLabel(cursor.year, cursor.month)}.`
                         : `No sessions for ${monthLabel(cursor.year, cursor.month)}.`}
@@ -381,6 +393,7 @@ function InvoiceRow({ invoice, showMonth, showStatus, waiting, onOpen, onMarkPai
   const stop = (fn) => (e) => { e.stopPropagation(); fn() }
   return (
     <tr className="invoice-row" onClick={onOpen}>
+      <td>{invoice.invoiceNumber || <span className="muted">—</span>}</td>
       <td>
         <button type="button" className="row-link" onClick={stop(onOpen)}>{invoice.studentName}</button>
       </td>

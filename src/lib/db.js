@@ -64,15 +64,19 @@ export const addNumberedInvoice = (data) => runTransaction(db, async (tx) => {
   tx.set(ref, { ...data, invoiceNumber: String(number) })
 })
 
-// Gives an invoice saved before numbering began its number (once only).
-export const numberExistingInvoice = (id) => runTransaction(db, async (tx) => {
-  const invRef = doc(db, 'invoices', id)
+// Gives invoices saved before numbering began their numbers, in the order of
+// `ids`, all in one transaction. Any that already have a number are skipped.
+export const numberExistingInvoices = (ids) => runTransaction(db, async (tx) => {
   const counterSnap = await tx.get(invoiceCounterDoc)
-  const invSnap = await tx.get(invRef)
-  if (!invSnap.exists() || invSnap.data().invoiceNumber) return
-  const number = nextInvoiceNumber(counterSnap)
-  tx.set(invoiceCounterDoc, { last: number }, { merge: true })
-  tx.update(invRef, { invoiceNumber: String(number) })
+  const refs = ids.map((id) => doc(db, 'invoices', id))
+  const snaps = await Promise.all(refs.map((ref) => tx.get(ref)))
+  let number = nextInvoiceNumber(counterSnap) - 1
+  snaps.forEach((snap, i) => {
+    if (!snap.exists() || snap.data().invoiceNumber) return
+    number += 1
+    tx.update(refs[i], { invoiceNumber: String(number) })
+  })
+  if (number >= FIRST_INVOICE_NUMBER) tx.set(invoiceCounterDoc, { last: number }, { merge: true })
 })
 export const updateInvoice = (id, data) => updateDoc(doc(db, 'invoices', id), data)
 export const deleteInvoice = (id) => deleteDoc(doc(db, 'invoices', id))
