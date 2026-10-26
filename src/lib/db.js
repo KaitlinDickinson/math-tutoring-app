@@ -1,8 +1,7 @@
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, getDoc, onSnapshot, query, orderBy, setDoc, writeBatch
+  collection, doc, addDoc, updateDoc, deleteDoc, getDoc, onSnapshot, query, orderBy, setDoc, writeBatch, runTransaction
 } from 'firebase/firestore'
 import { db } from '../firebase'
-
 function liveCollection(name, order) {
   return (callback, onError) => {
     const q = order ? query(collection(db, name), orderBy(order)) : collection(db, name)
@@ -46,6 +45,21 @@ export const deleteGroup = (id) => deleteDoc(doc(db, 'groups', id))
 // ---------- Invoices ----------
 export const listenInvoices = liveCollection('invoices')
 export const addInvoice = (data) => addDoc(collection(db, 'invoices'), data)
+
+// Hands out the next invoice number (2603, 2604, …) from a counter in
+// settings/invoiceCounter. A transaction keeps two tutors with the app open
+// from ever getting the same number.
+const invoiceCounterDoc = doc(db, 'settings', 'invoiceCounter')
+export const FIRST_INVOICE_NUMBER = 2603 // numbering started Oct 2026; earlier invoices have no number
+
+export const addNumberedInvoice = (data) => runTransaction(db, async (tx) => {
+  const snap = await tx.get(invoiceCounterDoc)
+  const last = snap.exists() ? snap.data().last || 0 : 0
+  const number = Math.max(last + 1, FIRST_INVOICE_NUMBER)
+  const ref = doc(collection(db, 'invoices'))
+  tx.set(invoiceCounterDoc, { last: number }, { merge: true })
+  tx.set(ref, { ...data, invoiceNumber: String(number) })
+})
 export const updateInvoice = (id, data) => updateDoc(doc(db, 'invoices', id), data)
 export const deleteInvoice = (id) => deleteDoc(doc(db, 'invoices', id))
 

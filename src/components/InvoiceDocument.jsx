@@ -1,4 +1,4 @@
-import { formatCurrency, formatDate, monthLabel } from '../lib/helpers'
+import { formatCurrency, formatDate, monthLabel, invoiceDueDate } from '../lib/helpers'
 
 // The invoice itself, shared by InvoiceView (real invoices) and the live
 // preview on the Settings page so the two never drift apart.
@@ -10,19 +10,23 @@ export default function InvoiceDocument({ invoice, settings }) {
   return (
     <>
       {settings?.logo && (
-        <img src={settings.logo} alt={billing.businessName || 'Company logo'} style={{ display: 'block', maxWidth: 220, maxHeight: 90, marginBottom: 16 }} />
+        <img src={settings.logo} alt={billing.businessName || 'Company logo'} style={{ display: 'block', width: '100%', height: 'auto', marginBottom: 16 }} />
       )}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
           <h2 style={{ marginBottom: 2 }}>Invoice</h2>
           <p className="muted">{monthLabel(invoice.year, invoice.month)}</p>
         </div>
-        <span className={`badge ${invoice.status === 'paid' ? 'badge-paid' : 'badge-unpaid'}`}>
-          <span className="badge-dot" /> {invoice.status === 'paid' ? 'Paid' : 'Unpaid'}
-        </span>
+        <div style={{ textAlign: 'right' }}>
+          {invoice.invoiceNumber && <div>Invoice no: <strong>{invoice.invoiceNumber}</strong></div>}
+          <div>Due date: <strong>{formatDate(invoiceDueDate(invoice.year, invoice.month))}</strong></div>
+          {invoice.status === 'paid' && (
+            <span className="badge badge-paid" style={{ marginTop: 6 }}><span className="badge-dot" /> Paid</span>
+          )}
+        </div>
       </div>
 
-      <div className="field-row" style={{ marginBottom: 18 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 18 }}>
         {hasFrom && (
           <div>
             <div className="muted">From</div>
@@ -32,7 +36,7 @@ export default function InvoiceDocument({ invoice, settings }) {
             {billing.contactPhone && <div className="muted">{billing.contactPhone}</div>}
           </div>
         )}
-        <div style={{ textAlign: hasFrom ? 'right' : 'left' }}>
+        <div style={{ textAlign: 'right', marginLeft: 'auto' }}>
           <div className="muted">Billed to</div>
           <strong>{invoice.accountable?.name} {invoice.accountable?.surname}</strong>
           <div className="muted">{invoice.accountable?.email}</div>
@@ -109,6 +113,10 @@ export default function InvoiceDocument({ invoice, settings }) {
           )}
         </p>
       )}
+
+      <p style={{ marginTop: 28, textAlign: 'center', fontStyle: 'italic' }}>
+        Thank you for your support! Together, we’re adding confidence, multiplying knowledge and making a difference.
+      </p>
     </>
   )
 }

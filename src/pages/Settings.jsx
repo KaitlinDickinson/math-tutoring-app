@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { listenSettings, saveSettings } from '../lib/db'
+import { listenSettings, saveSettings, FIRST_INVOICE_NUMBER } from '../lib/db'
 import UserManagement from '../components/UserManagement'
 import InvoiceDocument from '../components/InvoiceDocument'
 import { DEFAULT_WHATSAPP_MESSAGE, WHATSAPP_PLACEHOLDERS, fillWhatsAppMessage } from '../lib/helpers'
@@ -311,6 +311,7 @@ function sampleInvoice(rate) {
     year,
     month,
     status: 'unpaid',
+    invoiceNumber: String(FIRST_INVOICE_NUMBER),
     studentName: 'Sam Example',
     accountable: { name: 'Alex', surname: 'Example', email: 'alex@example.com', contact: '082 123 4567' },
     lineItems,

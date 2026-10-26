@@ -26,6 +26,13 @@ export function nowStamp() {
   return new Date().toISOString()
 }
 
+/** An invoice for a month is due on the first Monday of the following month. */
+export function invoiceDueDate(year, month) {
+  const d = new Date(year, month + 1, 1)
+  d.setDate(1 + ((8 - d.getDay()) % 7))
+  return d
+}
+
 /**
  * Hours for a sign-in: a manual override set on that one lesson, else its
  * calendar booking's length, else what was stored at check-in (booking gone).

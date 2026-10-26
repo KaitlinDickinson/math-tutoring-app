@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { differenceInCalendarDays } from 'date-fns'
 import {
-  listenStudents, listenSessions, listenBookings, listenInvoices, listenSettings, addInvoice, updateInvoice
+  listenStudents, listenSessions, listenBookings, listenInvoices, listenSettings, addNumberedInvoice, updateInvoice
 } from '../lib/db'
 import {
   buildMonthlyInvoice, monthsWithSessions, formatCurrency, monthLabel, exportInvoicesCSV, nowStamp
@@ -87,7 +87,7 @@ export default function Invoices() {
       if (!existing) {
         if (preview.sessionCount === 0 || creating.current.has(k)) return
         creating.current.add(k)
-        addInvoice({ ...preview, accountable: preview.accountable ?? null, status: 'unpaid', generatedAt: nowStamp() })
+        addNumberedInvoice({ ...preview, accountable: preview.accountable ?? null, status: 'unpaid', generatedAt: nowStamp() })
           .catch(() => creating.current.delete(k))
         return
       }
