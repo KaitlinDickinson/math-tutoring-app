@@ -1,4 +1,4 @@
-import { formatCurrency, formatDate, monthLabel, invoiceDueDate, DEFAULT_INVOICE_THANK_YOU } from '../lib/helpers'
+import { formatCurrency, formatDate, monthLabel, invoiceDueDate, DEFAULT_INVOICE_THANK_YOU, invoicePayments, totalPaid, CREDIT_METHOD } from '../lib/helpers'
 
 // The invoice itself, shared by InvoiceView (real invoices) and the live
 // preview on the Settings page so the two never drift apart.
@@ -8,6 +8,8 @@ export default function InvoiceDocument({ invoice, settings }) {
   const hasBanking = billing.bankName || billing.accountHolder || billing.accountNumber || billing.branchCode
   // Left blank in Settings means no closing line at all.
   const thankYou = (billing.thankYouMessage ?? DEFAULT_INVOICE_THANK_YOU).trim()
+  const payments = [...invoicePayments(invoice)].sort((a, b) => a.date.localeCompare(b.date))
+  const balance = Math.round((invoice.total - totalPaid(invoice)) * 100) / 100
 
   return (
     <>
@@ -91,6 +93,28 @@ export default function InvoiceDocument({ invoice, settings }) {
         <strong>Total: {formatCurrency(invoice.total)}</strong>
       </div>
 
+      {payments.length > 0 && (
+        <div style={{ textAlign: 'right', marginTop: 8 }}>
+          {payments.map((p, i) => (
+            <div key={i} className="muted">
+              {p.method === CREDIT_METHOD
+                ? `Credit from an earlier overpayment, applied ${formatDate(p.date)}`
+                : `Paid ${formatDate(p.date)}${p.method ? ` via ${p.method}` : ''}${p.reference ? ` (ref: ${p.reference})` : ''}`}
+              : −{formatCurrency(Number(p.amount) || 0)}
+            </div>
+          ))}
+          <div style={{ marginTop: 6, fontSize: 16, color: balance > 0 ? 'var(--red)' : 'var(--accent)' }}>
+            <strong>
+              {balance > 0
+                ? `Balance due: ${formatCurrency(balance)}`
+                : balance < 0
+                  ? `In credit: ${formatCurrency(-balance)} (carried to the next invoice)`
+                  : 'Paid in full'}
+            </strong>
+          </div>
+        </div>
+      )}
+
       {hasBanking && invoice.status !== 'paid' && (
         <div className="panel" style={{ marginTop: 20, padding: 14 }}>
           <div className="muted" style={{ marginBottom: 6 }}>Payment details</div>
@@ -99,21 +123,6 @@ export default function InvoiceDocument({ invoice, settings }) {
           {billing.accountNumber && <div>Account number: <strong>{billing.accountNumber}</strong></div>}
           {billing.branchCode && <div>Branch code: <strong>{billing.branchCode}</strong></div>}
         </div>
-      )}
-
-      {invoice.status === 'paid' && (
-        <p className="muted" style={{ marginTop: 10 }}>
-          Paid {formatCurrency(invoice.amountPaid ?? invoice.total)} on {formatDate(invoice.paidDate)} via {invoice.paidMethod}
-          {invoice.paidReference ? ` (ref: ${invoice.paidReference})` : ''}
-          {invoice.amountPaid != null && invoice.amountPaid !== invoice.total && (
-            <span style={{ color: invoice.amountPaid > invoice.total ? 'var(--accent)' : 'var(--red)', fontWeight: 600 }}>
-              {' — '}
-              {invoice.amountPaid > invoice.total
-                ? `overpaid by ${formatCurrency(invoice.amountPaid - invoice.total)}`
-                : `underpaid by ${formatCurrency(invoice.total - invoice.amountPaid)}`}
-            </span>
-          )}
-        </p>
       )}
 
       {thankYou && (

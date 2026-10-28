@@ -4,7 +4,8 @@ import {
   listenStudents, listenSessions, listenBookings, listenInvoices, listenSettings, addNumberedInvoice, numberExistingInvoices, ensureNumberingScheme, updateInvoice, FIRST_NUMBERED_MONTH
 } from '../lib/db'
 import {
-  buildMonthlyInvoice, monthsWithSessions, formatCurrency, monthLabel, exportInvoicesCSV, nowStamp
+  buildMonthlyInvoice, monthsWithSessions, formatCurrency, monthLabel, exportInvoicesCSV, nowStamp,
+  totalPaid, amountOwed, paymentFields, accountCredit, invoicePayments
 } from '../lib/helpers'
 import InvoiceView from '../components/InvoiceView'
 import MarkPaidModal from '../components/MarkPaidModal'
@@ -102,7 +103,9 @@ export default function Invoices() {
 
   // Every month with signed-in sessions gets an invoice automatically, and
   // unpaid invoices follow any change to sign-ins or the calendar. Paid
-  // invoices are never touched.
+  // invoices for finished months are never touched; one paid up front for a
+  // month still in progress keeps adding lessons, and goes back to unpaid if
+  // they cost more than was paid.
   useEffect(() => {
     if (!loaded || !numberingReady) return
     previewByKey.forEach((preview, k) => {
@@ -114,9 +117,14 @@ export default function Invoices() {
           .catch(() => creating.current.delete(k))
         return
       }
-      if (existing.status === 'paid') return
+      const monthOver = existing.year < today.getFullYear() || (existing.year === today.getFullYear() && existing.month < today.getMonth())
+      if (existing.status === 'paid' && monthOver) return
       if (syncedSnapshot(existing) !== syncedSnapshot(preview)) {
-        updateInvoice(existing.id, Object.fromEntries(SYNCED_FIELDS.map((f) => [f, preview[f] ?? null])))
+        const synced = Object.fromEntries(SYNCED_FIELDS.map((f) => [f, preview[f] ?? null]))
+        const status = existing.status === 'paid' || totalPaid(existing) > 0
+          ? paymentFields(invoicePayments(existing), preview.total).status
+          : existing.status
+        updateInvoice(existing.id, { ...synced, status })
       }
     })
   }, [loaded, numberingReady, previewByKey, invoiceByKey]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -156,8 +164,8 @@ export default function Invoices() {
 
   const outstanding = useMemo(() => {
     const list = allOutstanding.filter((inv) => matches(inv.studentName, inv.invoiceNumber))
-    const total = list.reduce((sum, inv) => sum + inv.total, 0)
-    const inProgress = list.filter(isCurrentMonth).reduce((sum, inv) => sum + inv.total, 0)
+    const total = list.reduce((sum, inv) => sum + amountOwed(inv), 0)
+    const inProgress = list.filter(isCurrentMonth).reduce((sum, inv) => sum + amountOwed(inv), 0)
     return { list, total, inProgress }
   }, [allOutstanding, q])
 
@@ -183,7 +191,7 @@ export default function Invoices() {
     monthRows.forEach(({ invoice }) => {
       if (!invoice) return
       billed += invoice.total
-      if (invoice.status === 'paid') paid += invoice.total
+      paid += Math.min(totalPaid(invoice), invoice.total)
     })
     return { billed, paid, unpaid: billed - paid }
   }, [monthRows])
@@ -193,18 +201,14 @@ export default function Invoices() {
     return { year: d.getFullYear(), month: d.getMonth() }
   })
 
-  const handleMarkPaid = async ({ paidDate, paidMethod, amountPaid, paidReference }) => {
+  // Removing every payment (or enough to leave something owed) puts the
+  // invoice back under Outstanding, syncing with sign-ins and the calendar.
+  const handleSavePayments = async (payments) => {
     const wasPaid = markingPaid.status === 'paid'
-    await updateInvoice(markingPaid.id, { status: 'paid', paidDate, paidMethod, amountPaid, paidReference })
+    const fields = paymentFields(payments, markingPaid.total)
+    await updateInvoice(markingPaid.id, fields)
     setMarkingPaid(null)
-    if (!wasPaid) setViewing(null) // after an edit, stay on the invoice to see the correction
-  }
-
-  // Undo a payment recorded by mistake; the invoice goes back to Outstanding
-  // and resumes syncing with sign-ins and the calendar.
-  const handleMarkUnpaid = async () => {
-    await updateInvoice(markingPaid.id, { status: 'unpaid', paidDate: null, paidMethod: null, amountPaid: null, paidReference: null })
-    setMarkingPaid(null)
+    if (!wasPaid && fields.status === 'paid') setViewing(null) // after an edit, stay on the invoice to see the correction
   }
 
   // Always show the live saved copy, so the open invoice updates with syncs.
@@ -369,9 +373,9 @@ export default function Invoices() {
         <MarkPaidModal
           invoice={markingPaid}
           defaultMethod={studentById.get(markingPaid.studentId)?.paymentMethod}
+          creditAvailable={accountCredit([...invoiceByKey.values()], markingPaid.studentId, markingPaid.id)}
           onClose={() => setMarkingPaid(null)}
-          onConfirm={handleMarkPaid}
-          onMarkUnpaid={handleMarkUnpaid}
+          onSave={handleSavePayments}
         />
       )}
       {showStatement && (
@@ -425,6 +429,8 @@ function EditButton({ onClick }) {
 
 function InvoiceRow({ invoice, showMonth, showStatus, waiting, onOpen, onMarkPaid, onEdit }) {
   const paid = invoice.status === 'paid'
+  const paidSoFar = totalPaid(invoice)
+  const partPaid = !paid && paidSoFar > 0
   const inProgress = invoice.year === new Date().getFullYear() && invoice.month === new Date().getMonth()
   const stop = (fn) => (e) => { e.stopPropagation(); fn() }
   return (
@@ -435,12 +441,15 @@ function InvoiceRow({ invoice, showMonth, showStatus, waiting, onOpen, onMarkPai
       </td>
       {showMonth && <td>{monthLabel(invoice.year, invoice.month)}</td>}
       <td><SessionSummary inv={invoice} /></td>
-      <td><strong>{formatCurrency(invoice.total)}</strong></td>
+      <td>
+        <strong>{formatCurrency(invoice.total)}</strong>
+        {partPaid && <div className="muted">{formatCurrency(paidSoFar)} paid, {formatCurrency(amountOwed(invoice))} owed</div>}
+      </td>
       {showStatus && (
         <td>
           {paid
             ? <span className="badge badge-paid"><span className="badge-dot" />Paid</span>
-            : <span className="badge badge-unpaid"><span className="badge-dot" />Unpaid</span>}
+            : <span className="badge badge-unpaid"><span className="badge-dot" />{partPaid ? 'Part paid' : 'Unpaid'}</span>}
           {!paid && inProgress && <div className="muted">Month in progress</div>}
         </td>
       )}
@@ -454,8 +463,8 @@ function InvoiceRow({ invoice, showMonth, showStatus, waiting, onOpen, onMarkPai
       <td className="row-actions">
         {!paid && <EditButton onClick={stop(onEdit)} />}
         {paid
-          ? <button type="button" className="btn btn-outline btn-sm" onClick={stop(onMarkPaid)}>Edit payment</button>
-          : <button type="button" className="btn btn-accent btn-sm" onClick={stop(onMarkPaid)}>Mark paid</button>}
+          ? <button type="button" className="btn btn-outline btn-sm" onClick={stop(onMarkPaid)}>Payments</button>
+          : <button type="button" className="btn btn-accent btn-sm" onClick={stop(onMarkPaid)}>{partPaid ? 'Add payment' : 'Mark paid'}</button>}
         <button type="button" className="btn btn-outline btn-sm" onClick={stop(onOpen)}>Open</button>
       </td>
     </tr>

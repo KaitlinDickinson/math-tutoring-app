@@ -161,10 +161,67 @@ export function buildMonthlyInvoice(student, sessions, bookings, year, month, ex
   }
 }
 
+// Payments made from money a student overpaid on an earlier invoice. They
+// move credit between invoices, so they aren't new money received.
+export const CREDIT_METHOD = 'Account credit'
+
+const roundCents = (n) => Math.round(n * 100) / 100
+
+/**
+ * An invoice's payments ({ date, method, amount, reference }), oldest first.
+ * Invoices paid before part payments existed hold their one payment in
+ * paidDate / paidMethod / amountPaid / paidReference.
+ */
+export function invoicePayments(inv) {
+  if (Array.isArray(inv?.payments)) return inv.payments
+  if (inv?.status === 'paid' && inv.paidDate) {
+    return [{ date: inv.paidDate, method: inv.paidMethod || '', amount: inv.amountPaid ?? inv.total, reference: inv.paidReference || '' }]
+  }
+  return []
+}
+
+export const totalPaid = (inv) => roundCents(invoicePayments(inv).reduce((sum, p) => sum + (Number(p.amount) || 0), 0))
+export const amountOwed = (inv) => Math.max(0, roundCents(inv.total - totalPaid(inv)))
+
+/**
+ * Everything saved on an invoice for a list of payments. It's paid once the
+ * payments cover the total. The single-payment fields are kept up to date
+ * (latest date and method, amount = sum) for the CSV export and older code.
+ */
+export function paymentFields(payments, total) {
+  const sorted = [...payments].sort((a, b) => a.date.localeCompare(b.date))
+  const paid = roundCents(sorted.reduce((sum, p) => sum + (Number(p.amount) || 0), 0))
+  const last = sorted[sorted.length - 1]
+  return {
+    payments: sorted,
+    status: sorted.length > 0 && paid >= roundCents(total) ? 'paid' : 'unpaid',
+    paidDate: last?.date ?? null,
+    paidMethod: last?.method ?? null,
+    amountPaid: last ? paid : null,
+    paidReference: last ? sorted.map((p) => p.reference).filter(Boolean).join(', ') : null
+  }
+}
+
+/**
+ * Money a student has overpaid that hasn't been put towards another invoice
+ * yet. `excludeId` leaves one invoice out, so its own payments can be edited
+ * against what's left.
+ */
+export function accountCredit(invoices, studentId, excludeId) {
+  let credit = 0
+  invoices.forEach((inv) => {
+    if (inv.studentId !== studentId || inv.id === excludeId) return
+    credit += Math.max(0, totalPaid(inv) - inv.total)
+    invoicePayments(inv).forEach((p) => { if (p.method === CREDIT_METHOD) credit -= Number(p.amount) || 0 })
+  })
+  return Math.max(0, roundCents(credit))
+}
+
 /**
  * A student's account statement from their saved invoices, for the months
  * `from` to `to` ({ year, month }, inclusive). Billed lessons and extra lines
- * are charges; each invoice's recorded payment is a payment on its paid date.
+ * are charges; each payment received is a payment on its own date (credit
+ * moved from an overpaid invoice is already in the balance, so it's left out).
  * Anything dated before the range is rolled into the opening balance.
  * Balances are positive when money is owed, negative when in credit.
  */
@@ -183,14 +240,15 @@ export function buildStatement(invoices, from, to) {
     inv.extraLines?.forEach((x) => {
       if (x.amount) entries.push({ date: monthEnd, label: x.label || 'Adjustment', charge: x.amount })
     })
-    if (inv.status === 'paid' && inv.paidDate) {
-      const ref = inv.paidReference ? ` (ref ${inv.paidReference})` : ''
+    invoicePayments(inv).forEach((p) => {
+      if (p.method === CREDIT_METHOD || !p.date) return
+      const ref = p.reference ? ` (ref ${p.reference})` : ''
       entries.push({
-        date: inv.paidDate,
-        label: `Payment received${inv.paidMethod ? ` – ${inv.paidMethod}` : ''}${ref}`,
-        payment: inv.amountPaid ?? inv.total
+        date: p.date,
+        label: `Payment received${p.method ? ` – ${p.method}` : ''}${ref}`,
+        payment: Number(p.amount) || 0
       })
-    }
+    })
   })
   // Charges before payments on the same day.
   entries.sort((a, b) => a.date.localeCompare(b.date) || (a.payment ? 1 : 0) - (b.payment ? 1 : 0))
@@ -513,6 +571,8 @@ export function exportInvoicesCSV(invoices) {
     Sessions: inv.sessionCount,
     Total: inv.total.toFixed(2),
     Status: inv.status,
+    AmountPaid: totalPaid(inv).toFixed(2),
+    Owed: amountOwed(inv).toFixed(2),
     PaidDate: inv.paidDate || '',
     PaymentMethod: inv.paidMethod || ''
   }))
