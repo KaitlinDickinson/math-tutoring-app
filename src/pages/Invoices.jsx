@@ -21,7 +21,7 @@ const TABS = [
 const keyOf = (studentId, year, month) => `${studentId}-${year}-${month}`
 
 // Fields that come from sessions + bookings; kept in sync on unpaid invoices.
-const SYNCED_FIELDS = ['studentName', 'accountable', 'lineItems', 'extraLines', 'sessionCount', 'missedSessions', 'missedCount', 'uncheckedWalkIns', 'total']
+const SYNCED_FIELDS = ['studentName', 'accountable', 'lineItems', 'extraLines', 'sessionCount', 'missedSessions', 'missedCount', 'bookedLines', 'bookedCount', 'uncheckedWalkIns', 'total']
 const syncedSnapshot = (inv) => JSON.stringify(SYNCED_FIELDS.map((f) => inv[f] ?? null))
 
 export default function Invoices() {
@@ -95,7 +95,7 @@ export default function Invoices() {
       months.forEach((ym) => {
         const [y, m] = ym.split('-').map(Number)
         const k = keyOf(student.id, y, m)
-        map.set(k, buildMonthlyInvoice(student, sessions, bookings, y, m, invoiceByKey.get(k)?.extraLines))
+        map.set(k, buildMonthlyInvoice(student, sessions, bookings, y, m, invoiceByKey.get(k)))
       })
     })
     return map
@@ -169,7 +169,7 @@ export default function Invoices() {
     return { list, total, inProgress }
   }, [allOutstanding, q])
 
-  // By month: every student with sessions or missed bookings that month.
+  // By month: every student with sessions or bookings that month.
   const monthRows = useMemo(() => {
     if (!loaded) return []
     const { year, month } = cursor
@@ -177,10 +177,10 @@ export default function Invoices() {
       .map((student) => {
         const k = keyOf(student.id, year, month)
         const invoice = invoiceByKey.get(k)
-        const preview = previewByKey.get(k) || buildMonthlyInvoice(student, sessions, bookings, year, month, invoice?.extraLines)
+        const preview = previewByKey.get(k) || buildMonthlyInvoice(student, sessions, bookings, year, month, invoice)
         return { student, invoice, preview }
       })
-      .filter((r) => r.invoice || r.preview.sessionCount > 0 || r.preview.missedCount > 0)
+      .filter((r) => r.invoice || r.preview.sessionCount > 0 || r.preview.missedCount > 0 || r.preview.upcomingCount > 0)
       .filter((r) => matches(r.preview.studentName, r.invoice?.invoiceNumber))
       .sort((a, b) => a.preview.studentName.localeCompare(b.preview.studentName))
   }, [loaded, students, sessions, bookings, invoiceByKey, previewByKey, cursor, q])
@@ -209,6 +209,16 @@ export default function Invoices() {
     await updateInvoice(markingPaid.id, fields)
     setMarkingPaid(null)
     if (!wasPaid && fields.status === 'paid') setViewing(null) // after an edit, stay on the invoice to see the correction
+  }
+
+  // The editor's "bill booked lessons" switch on a month with no invoice
+  // yet (nobody has signed in) starts one; the sync above fills it in.
+  const createInvoice = (student, year, month, fields) => {
+    const k = keyOf(student.id, year, month)
+    const preview = buildMonthlyInvoice(student, sessions, bookings, year, month, fields)
+    creating.current.add(k)
+    return addNumberedInvoice({ ...preview, ...fields, accountable: preview.accountable ?? null, status: 'unpaid', generatedAt: nowStamp() }, usedNumbers)
+      .catch((err) => { creating.current.delete(k); throw err })
   }
 
   // Always show the live saved copy, so the open invoice updates with syncs.
@@ -394,6 +404,7 @@ export default function Invoices() {
           invoice={invoiceByKey.get(keyOf(editing.studentId, editing.year, editing.month)) || null}
           sessions={sessions}
           bookings={bookings}
+          onCreateInvoice={createInvoice}
           onClose={() => setEditing(null)}
         />
       )}
@@ -405,6 +416,8 @@ function SessionSummary({ inv }) {
   return (
     <>
       {inv.sessionCount} attended
+      {inv.bookedCount > 0 && <div className="muted">{inv.bookedCount} booked, billed up front</div>}
+      {!inv.bookedCount && inv.upcomingCount > 0 &&<div className="muted">{inv.upcomingCount} booked, not billed yet</div>}
       {inv.missedCount > 0 && <div className="muted">{inv.missedCount} missed, not billed</div>}
       {inv.uncheckedWalkIns > 0 && (
         <div className="walkin-note">

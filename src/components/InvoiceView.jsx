@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import InvoiceDocument from './InvoiceDocument'
-import { setInvoiceNumber } from '../lib/db'
+import { setInvoiceNumber, updateInvoice } from '../lib/db'
 import {
-  fillWhatsAppMessage, whatsAppLink, whatsAppNumber, invoiceFileName, invoicePdfBlob, downloadBlob
+  fillWhatsAppMessage, whatsAppLink, whatsAppNumber, invoiceFileName, invoicePdfBlob, downloadBlob, todayISO
 } from '../lib/helpers'
 
 // Phones and tablets can attach the PDF straight into WhatsApp via the share
@@ -103,6 +103,12 @@ function InvoiceNumberBar({ invoice, usedNumbers }) {
   const [saving, setSaving] = useState(false)
 
   const start = () => { setValue(invoice.invoiceNumber || ''); setError(''); setEditing(true) }
+  // Unticking single lessons is done in the invoice editor.
+  const toggleUpcoming = (on) => {
+    setError('')
+    updateInvoice(invoice.id, { upcomingFrom: on ? todayISO() : null, removedBooked: [] })
+      .catch((err) => setError(`Couldn't save: ${err.message}`))
+  }
   const save = async (e) => {
     e.preventDefault()
     const number = value.trim()
@@ -135,6 +141,13 @@ function InvoiceNumberBar({ invoice, usedNumbers }) {
         <>
           <span>Invoice no. <strong>{invoice.invoiceNumber || '—'}</strong></span>
           <button type="button" className="btn-link" onClick={start}>✎ {invoice.invoiceNumber ? 'Edit' : 'Add number'}</button>
+          {invoice.status !== 'paid' && (
+            <label className="checkbox-row invoice-upfront-toggle" title="Charge every lesson still on the calendar this month, whether or not they sign in">
+              <input type="checkbox" checked={!!invoice.upcomingFrom} onChange={(e) => toggleUpcoming(e.target.checked)} />
+              Bill booked lessons to month end
+            </label>
+          )}
+          {error && <span className="invoice-number-error">{error}</span>}
         </>
       )}
     </div>

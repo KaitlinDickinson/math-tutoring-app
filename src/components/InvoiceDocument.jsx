@@ -67,6 +67,24 @@ export default function InvoiceDocument({ invoice, settings }) {
               </td>
             </tr>
           ))}
+          {(invoice.bookedLines || []).length > 0 && (
+            <tr className="booked-heading">
+              <td colSpan={5}>Booked lessons, billed in advance</td>
+            </tr>
+          )}
+          {(invoice.bookedLines || []).map((li, i) => (
+            <tr key={`booked-${i}`} className={li.removed ? 'muted' : ''}>
+              <td>{formatDate(li.date)}</td>
+              <td>{li.label}</td>
+              <td>{li.durationHours}</td>
+              <td>{formatCurrency(li.rate)}</td>
+              <td>
+                {li.removed
+                  ? <span className="badge badge-unpaid"><span className="badge-dot" />Cancelled — not billed</span>
+                  : formatCurrency(li.amount)}
+              </td>
+            </tr>
+          ))}
           {(invoice.missedSessions || []).map((li, i) => (
             <tr key={`missed-${i}`} className="muted">
               <td>{formatDate(li.date)}</td>
@@ -83,7 +101,7 @@ export default function InvoiceDocument({ invoice, settings }) {
               <td>{formatCurrency(x.amount)}</td>
             </tr>
           ))}
-          {invoice.lineItems.length === 0 && (invoice.missedSessions || []).length === 0 && (
+          {invoice.lineItems.length === 0 && (invoice.missedSessions || []).length === 0 && (invoice.bookedLines || []).length === 0 && (
             <tr><td colSpan={5} className="muted">No signed-in sessions recorded this month.</td></tr>
           )}
         </tbody>

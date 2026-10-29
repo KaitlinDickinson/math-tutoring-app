@@ -106,14 +106,20 @@ export function sessionLabel(booking, fallbackTitle, fallbackType) {
  * back to what was stored at check-in.
  *
  * Also compares against the student's calendar bookings for the month so
- * admin can see booked-but-not-signed-in sessions — these are never billed,
- * just surfaced for transparency.
+ * admin can see booked-but-not-signed-in sessions — these aren't billed
+ * (unless billed up front, below), just surfaced for transparency.
  *
  * Manual edits from the invoice editor live on the sign-ins themselves
- * (hoursOverride, rate, notBilled), plus `extraLines` ({ label, amount }) —
- * charges or discounts stored on the invoice and passed back in here.
+ * (hoursOverride, rate, notBilled), plus what's stored on the saved invoice
+ * and passed back in as `saved`:
+ * - `extraLines` ({ label, amount }): charges or discounts.
+ * - `upcomingFrom` (ISO date, or null when off): bill booked lessons from
+ *   this date to the end of the month up front. Each one without a sign-in
+ *   is a `bookedLines` entry and is charged even if they don't come, unless
+ *   its `bookedKey` is in `removedBooked` (tutor was told in advance).
  */
-export function buildMonthlyInvoice(student, sessions, bookings, year, month, extraLines = []) {
+export function buildMonthlyInvoice(student, sessions, bookings, year, month, saved = {}) {
+  const { extraLines = [], upcomingFrom = null, removedBooked = [] } = saved || {}
   const studentSessions = sessions.filter((s) => s.studentId === student.id)
   const links = linkSessionsToBookings(studentSessions, bookings)
   const monthSessions = studentSessions
@@ -141,9 +147,24 @@ export function buildMonthlyInvoice(student, sessions, bookings, year, month, ex
   })
 
   const extras = (extraLines || []).map((x) => ({ label: x.label || '', amount: Number(x.amount) || 0 }))
-  const total = lineItems.reduce((sum, li) => sum + li.amount, 0) + extras.reduce((sum, x) => sum + x.amount, 0)
 
-  const missedSessions = findMissedSessions(student, bookings, monthSessions, links, year, month)
+  const unattended = unattendedBookings(student, bookings, monthSessions, links, year, month)
+  const removed = new Set(removedBooked || [])
+  const bookedLines = upcomingFrom
+    ? unattended.filter((b) => b.date >= upcomingFrom).map((b) => {
+      const isRemoved = removed.has(b.bookedKey)
+      return { ...b, removed: isRemoved, amount: isRemoved ? 0 : b.durationHours * b.rate }
+    })
+    : []
+  const billedKeys = new Set(bookedLines.map((b) => b.bookedKey))
+  const todayIso = todayISO()
+  // Booked lessons up to today without a sign-in, unless billed up front.
+  const missedSessions = unattended.filter((b) => b.date <= todayIso && !billedKeys.has(b.bookedKey))
+  const upcomingCount = unattended.filter((b) => b.date > todayIso).length
+
+  const total = lineItems.reduce((sum, li) => sum + li.amount, 0) +
+    bookedLines.reduce((sum, b) => sum + b.amount, 0) +
+    extras.reduce((sum, x) => sum + x.amount, 0)
 
   return {
     studentId: student.id,
@@ -157,9 +178,15 @@ export function buildMonthlyInvoice(student, sessions, bookings, year, month, ex
     uncheckedWalkIns,
     missedSessions,
     missedCount: missedSessions.length,
+    bookedLines,
+    bookedCount: bookedLines.filter((b) => !b.removed).length,
+    upcomingCount,
     total
   }
 }
+
+/** Key for one booked lesson on one date, as stored in `removedBooked`. */
+export const bookedKey = (bookingId, dateISO) => `${bookingId}|${dateISO}`
 
 // Payments made from money a student overpaid on an earlier invoice. They
 // move credit between invoices, so they aren't new money received.
@@ -236,6 +263,10 @@ export function buildStatement(invoices, from, to) {
       if (li.notBilled || !li.amount) return
       entries.push({ date: li.date, label: `${li.label}, ${li.durationHours} h`, charge: li.amount })
     })
+    inv.bookedLines?.forEach((b) => {
+      if (b.removed || !b.amount) return
+      entries.push({ date: b.date, label: `${b.label}, ${b.durationHours} h (booked)`, charge: b.amount })
+    })
     const monthEnd = format(new Date(inv.year, inv.month + 1, 0), 'yyyy-MM-dd')
     inv.extraLines?.forEach((x) => {
       if (x.amount) entries.push({ date: monthEnd, label: x.label || 'Adjustment', charge: x.amount })
@@ -289,12 +320,10 @@ export function monthsWithSessions(sessions, studentId) {
 }
 
 /**
- * Booked occurrences (up to today, so future bookings aren't judged yet)
- * for this student in the given month that have no matching signed-in
- * session for that exact booking + date.
+ * Booked occurrences for this student in the given month that have no
+ * matching signed-in session for that exact booking + date.
  */
-function findMissedSessions(student, bookings, monthSessions, links, year, month) {
-  const todayIso = todayISO()
+function unattendedBookings(student, bookings, monthSessions, links, year, month) {
   const monthStart = new Date(year, month, 1)
   const monthEnd = new Date(year, month + 1, 0)
 
@@ -304,12 +333,12 @@ function findMissedSessions(student, bookings, monthSessions, links, year, month
   for (const booking of studentBookings) {
     for (let d = monthStart; d <= monthEnd; d = addDays(d, 1)) {
       const iso = format(d, 'yyyy-MM-dd')
-      if (iso > todayIso) continue
       if (!occursOnDate(booking, iso)) continue
       const attended = monthSessions.some((s) => links.get(s.id)?.id === booking.id && s.date === iso)
       if (attended) continue
       missed.push({
         bookingId: booking.id,
+        bookedKey: bookedKey(booking.id, iso),
         date: iso,
         label: sessionLabel(booking),
         durationHours: durationHours(booking.startTime, booking.endTime),
@@ -568,7 +597,7 @@ export function exportInvoicesCSV(invoices) {
   const rows = invoices.map((inv) => ({
     Student: inv.studentName,
     Month: monthLabel(inv.year, inv.month),
-    Sessions: inv.sessionCount,
+    Sessions: inv.sessionCount + (inv.bookedCount || 0),
     Total: inv.total.toFixed(2),
     Status: inv.status,
     AmountPaid: totalPaid(inv).toFixed(2),

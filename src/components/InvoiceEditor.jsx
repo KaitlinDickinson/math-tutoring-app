@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { addSession, updateSession, deleteSession, updateInvoice } from '../lib/db'
-import { buildMonthlyInvoice, formatCurrency, formatDate, monthLabel } from '../lib/helpers'
+import { buildMonthlyInvoice, formatCurrency, formatDate, monthLabel, todayISO } from '../lib/helpers'
 import Modal from './Modal'
 
 const pad = (n) => String(n).padStart(2, '0')
@@ -10,11 +10,12 @@ const newKey = () => `k${nextKey++}`
 
 // Edits an invoice by changing what it's built from: each lesson's sign-in
 // (hours, rate, not billed, removed), new sign-ins for missed or extra
-// lessons, and charges/discounts stored on the invoice. Nothing is written
+// lessons, charges/discounts stored on the invoice, and whether booked
+// lessons are billed up front (each can be unticked). Nothing is written
 // until "Save changes", and Attendance shows the same edits.
-export default function InvoiceEditor({ student, year, month, invoice, sessions, bookings, onClose }) {
+export default function InvoiceEditor({ student, year, month, invoice, sessions, bookings, onCreateInvoice, onClose }) {
   const base = useMemo(
-    () => buildMonthlyInvoice(student, sessions, bookings, year, month, invoice?.extraLines),
+    () => buildMonthlyInvoice(student, sessions, bookings, year, month, invoice),
     [] // built once when the editor opens, so live updates don't reset the form
 
   )
@@ -24,6 +25,16 @@ export default function InvoiceEditor({ student, year, month, invoice, sessions,
     ...li, hours: String(li.durationHours), rateInput: String(li.rate), billed: !li.notBilled, remove: false
   })))
   const [missed, setMissed] = useState(() => base.missedSessions.map((m) => ({ ...m, attend: false })))
+  const [billUpcoming, setBillUpcoming] = useState(!!invoice?.upcomingFrom)
+  const upcomingFrom = invoice?.upcomingFrom || todayISO()
+  // Every booked lesson without a sign-in from upcomingFrom, charged or not.
+  const booked = useMemo(
+    () => (billUpcoming ? buildMonthlyInvoice(student, sessions, bookings, year, month, { upcomingFrom }).bookedLines : []),
+    [billUpcoming] // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  const [removedBooked, setRemovedBooked] = useState(() => new Set(invoice?.removedBooked || []))
+  const bookedKeys = new Set(booked.map((b) => b.bookedKey))
+  const missedRows = missed.filter((m) => !bookedKeys.has(m.bookedKey))
   const [added, setAdded] = useState([])
   const [extras, setExtras] = useState(() => base.extraLines.map((x) => ({ ...x, key: newKey(), amount: String(x.amount) })))
   const [saving, setSaving] = useState(false)
@@ -38,7 +49,8 @@ export default function InvoiceEditor({ student, year, month, invoice, sessions,
 
   const total =
     lines.reduce((sum, l) => sum + (l.remove || !l.billed ? 0 : num(l.hours) * num(l.rateInput)), 0) +
-    missed.reduce((sum, m) => sum + (m.attend ? m.durationHours * m.rate : 0), 0) +
+    missedRows.reduce((sum, m) => sum + (m.attend ? m.durationHours * m.rate : 0), 0) +
+    booked.reduce((sum, b) => sum + (removedBooked.has(b.bookedKey) ? 0 : b.durationHours * b.rate), 0) +
     added.reduce((sum, a) => sum + num(a.hours) * num(a.rate), 0) +
     extras.reduce((sum, x) => sum + num(x.amount), 0)
 
@@ -68,7 +80,7 @@ export default function InvoiceEditor({ student, year, month, invoice, sessions,
         if (Object.keys(patch).length) writes.push(updateSession(l.sessionId, patch))
       })
 
-      missed.filter((m) => m.attend).forEach((m) => {
+      missedRows.filter((m) => m.attend).forEach((m) => {
         const booking = bookingById.get(m.bookingId)
         writes.push(addSession({
           studentId: student.id,
@@ -104,9 +116,19 @@ export default function InvoiceEditor({ student, year, month, invoice, sessions,
       const cleanExtras = extras
         .filter((x) => x.label.trim() || num(x.amount))
         .map((x) => ({ label: x.label.trim(), amount: num(x.amount) }))
-      if (invoice && JSON.stringify(cleanExtras) !== JSON.stringify(base.extraLines)) {
-        writes.push(updateInvoice(invoice.id, { extraLines: cleanExtras }))
+      const invoicePatch = {}
+      if (invoice && JSON.stringify(cleanExtras) !== JSON.stringify(base.extraLines)) invoicePatch.extraLines = cleanExtras
+
+      const upfront = {
+        upcomingFrom: billUpcoming ? upcomingFrom : null,
+        removedBooked: billUpcoming ? [...removedBooked].filter((k) => bookedKeys.has(k)).sort() : []
       }
+      const savedUpfront = { upcomingFrom: invoice?.upcomingFrom || null, removedBooked: [...(invoice?.removedBooked || [])].sort() }
+      if (JSON.stringify(upfront) !== JSON.stringify(savedUpfront)) {
+        if (invoice) Object.assign(invoicePatch, upfront)
+        else if (billUpcoming) writes.push(onCreateInvoice(student, year, month, upfront))
+      }
+      if (invoice && Object.keys(invoicePatch).length) writes.push(updateInvoice(invoice.id, invoicePatch))
 
       await Promise.all(writes)
       onClose()
@@ -130,6 +152,17 @@ export default function InvoiceEditor({ student, year, month, invoice, sessions,
       <p className="field-hint" style={{ marginTop: 0 }}>
         Changes to hours and rates apply to that one lesson only; the calendar isn't changed.
       </p>
+
+      <label className="checkbox-row editor-upfront">
+        <input type="checkbox" checked={billUpcoming} onChange={(e) => setBillUpcoming(e.target.checked)} />
+        <span>
+          <strong>Bill booked lessons up front</strong>
+          <span className="field-hint">
+            Charges every lesson on the calendar from {formatDate(upcomingFrom > firstDay ? upcomingFrom : firstDay)} to {formatDate(lastDay)},
+            whether or not they sign in. Untick a lesson below if they let you know in advance that they can't come.
+          </span>
+        </span>
+      </label>
 
       <div className="table-scroll">
         <table className="ledger editor-table">
@@ -162,7 +195,35 @@ export default function InvoiceEditor({ student, year, month, invoice, sessions,
               </tr>
             ))}
 
-            {missed.map((m, i) => (
+            {booked.map((b) => {
+              const charged = !removedBooked.has(b.bookedKey)
+              return (
+                <tr key={b.bookedKey} className={charged ? '' : 'is-missed'}>
+                  <td>{formatDate(b.date)}</td>
+                  <td>{b.label}<span className="badge badge-booked">Booked</span></td>
+                  <td>{b.durationHours}</td>
+                  <td>{formatCurrency(b.rate)}</td>
+                  <td>{charged ? formatCurrency(b.durationHours * b.rate) : <span className="muted">Cancelled, not billed</span>}</td>
+                  <td className="editor-actions">
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={charged}
+                        onChange={() => setRemovedBooked((set) => {
+                          const next = new Set(set)
+                          if (next.has(b.bookedKey)) next.delete(b.bookedKey)
+                          else next.add(b.bookedKey)
+                          return next
+                        })}
+                      />
+                      Charge
+                    </label>
+                  </td>
+                </tr>
+              )
+            })}
+
+            {missedRows.map((m) => (
               <tr key={`${m.bookingId}-${m.date}`} className={m.attend ? '' : 'is-missed'}>
                 <td>{formatDate(m.date)}</td>
                 <td>{m.label}{!m.attend && <span className="badge badge-unpaid" style={{ marginLeft: 8 }}>Missed</span>}</td>
@@ -173,7 +234,7 @@ export default function InvoiceEditor({ student, year, month, invoice, sessions,
                   <button
                     type="button"
                     className={m.attend ? 'btn-link' : 'btn btn-outline btn-sm'}
-                    onClick={() => setMissed((ms) => ms.map((x, j) => (j === i ? { ...x, attend: !x.attend } : x)))}
+                    onClick={() => setMissed((ms) => ms.map((x) => (x.bookedKey === m.bookedKey ? { ...x, attend: !x.attend } : x)))}
                   >
                     {m.attend ? 'Undo' : 'Mark as attended'}
                   </button>
@@ -205,7 +266,7 @@ export default function InvoiceEditor({ student, year, month, invoice, sessions,
               </tr>
             ))}
 
-            {lines.length + missed.length + added.length + extras.length === 0 && (
+            {lines.length + booked.length + missedRows.length + added.length + extras.length === 0 && (
               <tr><td colSpan={6} className="muted">No sessions this month yet. Add one below.</td></tr>
             )}
           </tbody>

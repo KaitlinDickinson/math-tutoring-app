@@ -75,6 +75,13 @@ export default function MarkPaidModal({ invoice, defaultMethod, creditAvailable 
               <td>{li.notBilled ? 'Not billed' : formatCurrency(li.amount)}</td>
             </tr>
           ))}
+          {(invoice.bookedLines || []).filter((b) => !b.removed).map((b) => (
+            <tr key={b.bookedKey}>
+              <td>{formatDate(b.date)}</td>
+              <td>{b.label} <span className="muted">(booked)</span></td>
+              <td>{formatCurrency(b.amount)}</td>
+            </tr>
+          ))}
           {(invoice.extraLines || []).map((x, i) => (
             <tr key={`extra-${i}`}>
               <td />
