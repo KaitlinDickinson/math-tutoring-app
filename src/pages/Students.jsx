@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { listenStudents, addStudent, updateStudent, deleteStudent, bulkUpdateStudents, listenSettings, saveSettings } from '../lib/db'
+import { listenStudents, addStudent, updateStudent, deleteStudent, bulkUpdateStudents, listenSettings, saveSettings, listenRegistrations, listenRegistrationForms, listenPublicRegistration } from '../lib/db'
+import { rolloverUpdates } from '../lib/registration'
 import { formatCurrency, exportStudentsCSV } from '../lib/helpers'
 import Modal from '../components/Modal'
 import StudentForm from '../components/StudentForm'
 import StudentGroups from '../components/StudentGroups'
+import RegistrationsTab from '../components/registration/RegistrationsTab'
+import RegistrationDetails from '../components/registration/RegistrationDetails'
 
 const COLUMN_DEFS = {
   firstName: { label: 'Name', accessor: (s) => s.firstName || '' },
@@ -13,15 +16,23 @@ const COLUMN_DEFS = {
   studentContact: { label: 'Contact', accessor: (s) => s.studentContact || '' },
   accountable: { label: 'Accountable person', accessor: (s) => `${s.accountable?.name || ''} ${s.accountable?.surname || ''}`.trim() },
   paymentMethod: { label: 'Payment', accessor: (s) => s.paymentMethod || '' },
-  hourlyRate: { label: 'Rate', accessor: (s) => Number(s.hourlyRate) || 0, numeric: true }
+  hourlyRate: { label: 'Rate', accessor: (s) => Number(s.hourlyRate) || 0, numeric: true },
+  // Label and accessor depend on the registration year; filled in below.
+  registered: { label: 'Registered', accessor: () => 0, numeric: true }
 }
-const DEFAULT_COLUMN_ORDER = ['firstName', 'lastName', 'grade', 'studentContact', 'accountable', 'paymentMethod', 'hourlyRate']
+const DEFAULT_COLUMN_ORDER = ['firstName', 'lastName', 'grade', 'studentContact', 'accountable', 'paymentMethod', 'hourlyRate', 'registered']
 
-function renderCell(key, s) {
+const isRegistered = (s, year) => (s.registeredYears || []).includes(year)
+
+function renderCell(key, s, regYear) {
   switch (key) {
     case 'firstName': return <strong>{s.firstName}</strong>
     case 'lastName': return <strong>{s.lastName}</strong>
-    case 'grade': return s.grade !== undefined && s.grade !== null && s.grade !== '' ? s.grade : <span className="muted">—</span>
+    case 'grade': return <>
+      {s.grade !== undefined && s.grade !== null && s.grade !== '' ? s.grade : <span className="muted">—</span>}
+      {s.pendingGrade && <span className="pending-grade">Gr {s.pendingGrade.grade} from {s.pendingGrade.year}</span>}
+    </>
+    case 'registered': return isRegistered(s, regYear) ? <span className="badge badge-paid">Registered</span> : <span className="badge badge-unpaid">Not yet</span>
     case 'studentContact': return s.studentContact
     case 'accountable': return <>{s.accountable?.name} {s.accountable?.surname}<div className="muted">{s.accountable?.email}</div></>
     case 'paymentMethod': return <>{s.paymentMethod} · {timingLabel(s.paymentTiming)}</>
@@ -43,18 +54,29 @@ export default function Students() {
   const [overKey, setOverKey] = useState(null)
   const [modal, setModal] = useState(null) // null | 'add' | student object (edit)
   const [confirmDelete, setConfirmDelete] = useState(null)
+  const [registrations, setRegistrations] = useState(null)
+  const [regForms, setRegForms] = useState([])
+  const [liveFormId, setLiveFormId] = useState(null)
+  const [statusFilter, setStatusFilter] = useState('active') // active | archived | all
+  const [regFilter, setRegFilter] = useState('all') // all | registered | not
+  const [detailsFor, setDetailsFor] = useState(null)
+  const [confirmBulkArchive, setConfirmBulkArchive] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
   // The tab lives in the address (/admin/students or /admin/students/groups)
   // so the sidebar's sub-links and these tabs always agree.
   const location = useLocation()
   const navigate = useNavigate()
-  const tab = location.pathname.endsWith('/groups') ? 'groups' : 'students'
-  const setTab = (t) => navigate(t === 'groups' ? '/admin/students/groups' : '/admin/students')
+  const tab = location.pathname.endsWith('/groups') ? 'groups' : location.pathname.endsWith('/registrations') ? 'registrations' : 'students'
+  const setTab = (t) => navigate(t === 'students' ? '/admin/students' : `/admin/students/${t}`)
   const rolloverRan = useRef(false)
 
   useEffect(() => {
     const u1 = listenStudents(setStudents)
     const u2 = listenSettings((s) => { setSettings(s); setSettingsLoaded(true) })
-    return () => { u1(); u2() }
+    const u3 = listenRegistrations(setRegistrations, () => setRegistrations([]))
+    const u4 = listenRegistrationForms(setRegForms, () => {})
+    const u5 = listenPublicRegistration((p) => setLiveFormId(p.activeFormId || null))
+    return () => { u1(); u2(); u3(); u4(); u5() }
   }, [])
 
   // Restore the admin's saved column order once settings arrive. Unknown keys
@@ -72,7 +94,8 @@ export default function Students() {
 
   // Bumps every student's grade by one the first time this page is opened in
   // a new calendar year. The very first run just records a baseline year —
-  // there's nothing to promote from yet.
+  // there's nothing to promote from yet. Students registered ahead for the
+  // new year get exactly the grade they registered with instead.
   useEffect(() => {
     if (!settingsLoaded || rolloverRan.current || students.length === 0) return
     rolloverRan.current = true
@@ -80,9 +103,7 @@ export default function Students() {
     const lastYear = settings.gradeRolloverYear
     if (lastYear === currentYear) return
     if (lastYear != null) {
-      const updates = students
-        .filter((s) => s.grade !== undefined && s.grade !== null && s.grade !== '')
-        .map((s) => ({ id: s.id, data: { grade: Number(s.grade) + 1 } }))
+      const updates = rolloverUpdates(students, currentYear)
       if (updates.length > 0) bulkUpdateStudents(updates)
     }
     saveSettings({ gradeRolloverYear: currentYear })
@@ -93,16 +114,31 @@ export default function Students() {
     return Array.from(set).sort((a, b) => Number(a) - Number(b))
   }, [students])
 
+  // The year the "Registered" column and filter are about: the live
+  // registration form's year, else next year.
+  const regYear = (regForms.find((f) => f.id === liveFormId) || {}).year || new Date().getFullYear() + 1
+  const activeStudents = useMemo(() => students.filter((s) => !s.archived), [students])
+  const notRegistered = useMemo(() => activeStudents.filter((s) => !isRegistered(s, regYear)), [activeStudents, regYear])
+  const regById = useMemo(() => new Map((registrations || []).map((r) => [r.id, r])), [registrations])
+  const columnDefs = useMemo(() => ({
+    ...COLUMN_DEFS,
+    registered: { label: String(regYear), accessor: (s) => (isRegistered(s, regYear) ? 1 : 0), numeric: true }
+  }), [regYear])
+
   const filtered = useMemo(() => {
     let list = students
+    if (statusFilter === 'active') list = list.filter((s) => !s.archived)
+    if (statusFilter === 'archived') list = list.filter((s) => s.archived)
+    if (regFilter === 'registered') list = list.filter((s) => isRegistered(s, regYear))
+    if (regFilter === 'not') list = list.filter((s) => !isRegistered(s, regYear))
     const q = query.trim().toLowerCase()
     if (q) list = list.filter((s) => `${s.firstName} ${s.lastName}`.toLowerCase().includes(q))
     if (gradeFilter !== 'all') list = list.filter((s) => String(s.grade ?? '') === gradeFilter)
     return list
-  }, [students, query, gradeFilter])
+  }, [students, query, gradeFilter, statusFilter, regFilter, regYear])
 
   const sorted = useMemo(() => {
-    const col = COLUMN_DEFS[sortKey] || COLUMN_DEFS.lastName
+    const col = columnDefs[sortKey] || columnDefs.lastName
     const arr = [...filtered].sort((a, b) => {
       const av = col.accessor(a)
       const bv = col.accessor(b)
@@ -110,7 +146,7 @@ export default function Students() {
       return sortDir === 'asc' ? cmp : -cmp
     })
     return arr
-  }, [filtered, sortKey, sortDir])
+  }, [filtered, sortKey, sortDir, columnDefs])
 
   const toggleSort = (key) => {
     if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
@@ -141,16 +177,29 @@ export default function Students() {
   const handleAdd = async (data) => { await addStudent(data); setModal(null) }
   const handleEdit = async (data) => { await updateStudent(modal.id, data); setModal(null) }
   const handleDelete = async () => { await deleteStudent(confirmDelete.id); setConfirmDelete(null) }
+  const setArchived = (s, archived) => updateStudent(s.id, { archived })
+  const bulkArchive = async () => {
+    await bulkUpdateStudents(notRegistered.map((s) => ({ id: s.id, data: { archived: true } })))
+    setConfirmBulkArchive(false)
+  }
+  const registerLink = `${window.location.origin}/register`
+  const copyRegisterLink = async () => {
+    try { await navigator.clipboard.writeText(registerLink); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) } catch { window.prompt('Copy this link:', registerLink) }
+  }
+  const newCount = (registrations || []).filter((r) => r.status === 'new').length
 
   return (
     <>
       <div className="content-header" style={{ marginBottom: 14 }}>
         <div>
           <h1>Students</h1>
-          <p>{students.length} registered</p>
+          <p>{activeStudents.length} active{students.length > activeStudents.length ? ` · ${students.length - activeStudents.length} archived` : ''}</p>
         </div>
+        {tab === 'registrations' && (
+          <button className="btn btn-outline" onClick={copyRegisterLink}>{linkCopied ? 'Link copied ✓' : 'Copy registration link'}</button>
+        )}
         {tab === 'students' && (
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <button className="btn btn-outline" onClick={() => exportStudentsCSV(sorted)}>Export CSV</button>
             <button className="btn btn-accent" onClick={() => setModal('add')}>+ Register student</button>
           </div>
@@ -158,14 +207,16 @@ export default function Students() {
       </div>
 
       <div className="tab-bar" role="tablist">
-        {[{ key: 'students', label: 'Students' }, { key: 'groups', label: 'Groups' }].map((t) => (
+        {[{ key: 'students', label: 'Students' }, { key: 'registrations', label: 'Registrations', count: newCount }, { key: 'groups', label: 'Groups' }].map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={tab === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>
-            {t.label}
+            {t.label}{t.count > 0 && <span className="nav-count">{t.count}</span>}
           </button>
         ))}
       </div>
 
-      {tab === 'groups' ? <StudentGroups students={students} /> : <>
+      {tab === 'groups' && <StudentGroups students={activeStudents} />}
+      {tab === 'registrations' && <RegistrationsTab registrations={registrations} students={students} defaultRate={settings.defaultHourlyRate} />}
+      {tab === 'students' && <>
       <div className="cal-toolbar">
         <div className="search-wrap" style={{ maxWidth: 420, flex: 1 }}>
           <span className="search-icon">🔍</span>
@@ -175,6 +226,19 @@ export default function Students() {
           <option value="all">All grades</option>
           {gradeOptions.map((g) => <option key={g} value={g}>Grade {g}</option>)}
         </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Active or archived">
+          <option value="active">Active students</option>
+          <option value="archived">Archived</option>
+          <option value="all">Active and archived</option>
+        </select>
+        <select value={regFilter} onChange={(e) => setRegFilter(e.target.value)} aria-label={`Registered for ${regYear}`}>
+          <option value="all">Registered or not ({regYear})</option>
+          <option value="registered">Registered for {regYear}</option>
+          <option value="not">Not registered for {regYear}</option>
+        </select>
+        {notRegistered.length > 0 && (
+          <button className="btn btn-outline btn-sm" onClick={() => setConfirmBulkArchive(true)}>Archive everyone not registered for {regYear}</button>
+        )}
       </div>
 
       <div className="panel">
@@ -194,7 +258,7 @@ export default function Students() {
                     onDragEnd={handleDragEnd}
                     onClick={() => toggleSort(key)}
                   >
-                    {COLUMN_DEFS[key].label}{sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                    {columnDefs[key].label}{sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
                   </th>
                 ))}
                 <th></th>
@@ -202,10 +266,12 @@ export default function Students() {
             </thead>
             <tbody>
               {sorted.map((s) => (
-                <tr key={s.id}>
-                  {columnOrder.map((key) => <td key={key}>{renderCell(key, s)}</td>)}
+                <tr key={s.id} className={s.archived ? 'row-archived' : ''}>
+                  {columnOrder.map((key) => <td key={key}>{renderCell(key, s, regYear)}</td>)}
                   <td style={{ whiteSpace: 'nowrap' }}>
                     <button className="btn btn-outline btn-sm" onClick={() => setModal(s)}>Edit</button>{' '}
+                    {(s.registrationIds || []).length > 0 && <><button className="btn btn-outline btn-sm" onClick={() => setDetailsFor(s)}>Registration</button>{' '}</>}
+                    <button className="btn btn-outline btn-sm" onClick={() => setArchived(s, !s.archived)}>{s.archived ? 'Unarchive' : 'Archive'}</button>{' '}
                     <button className="btn btn-danger btn-sm" onClick={() => setConfirmDelete(s)}>Delete</button>
                   </td>
                 </tr>
@@ -240,6 +306,37 @@ export default function Students() {
           </>}
         >
           <p>This removes {confirmDelete.firstName} {confirmDelete.lastName} from your student list. Their past sign-ins and invoices are kept.</p>
+          <p className="muted">Not coming back this year? <strong>Archive</strong> instead: they disappear from the kiosk and lists but can be brought back any time.</p>
+        </Modal>
+      )}
+
+      {confirmBulkArchive && (
+        <Modal
+          title={`Archive ${notRegistered.length} student${notRegistered.length === 1 ? '' : 's'}?`}
+          onClose={() => setConfirmBulkArchive(false)}
+          width={520}
+          footer={<>
+            <button className="btn btn-outline" onClick={() => setConfirmBulkArchive(false)}>Cancel</button>
+            <button className="btn btn-danger" onClick={bulkArchive}>Archive {notRegistered.length}</button>
+          </>}
+        >
+          <p>These active students aren’t registered for {regYear}. Archiving hides them from the kiosk, the student list and new bookings. Their invoices and attendance stay, and you can unarchive anyone later. Approving a registration for an archived student brings them back automatically.</p>
+          <div className="picker-list" style={{ marginTop: 10 }}>
+            {[...notRegistered].sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`)).map((s) => (
+              <div className="picker-row" key={s.id}>{s.firstName} {s.lastName}<span className="muted"> · {s.accountable?.contact}</span></div>
+            ))}
+          </div>
+        </Modal>
+      )}
+
+      {detailsFor && (
+        <Modal title={`Registration details: ${detailsFor.firstName} ${detailsFor.lastName}`} onClose={() => setDetailsFor(null)} width={680}>
+          {[...(detailsFor.registrationIds || [])].reverse().map((id) => {
+            const r = regById.get(id)
+            return r
+              ? <div key={id} style={{ marginBottom: 20 }}><RegistrationDetails registration={r} /></div>
+              : <p key={id} className="muted">A registration that has since been deleted.</p>
+          })}
         </Modal>
       )}
     </>

@@ -51,6 +51,35 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // Online registration. The /register page needs to read the live form
+    // (and which one is live) without a login; only admins can change them.
+    match /publicSettings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /registrationForms/{formId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Submissions: anyone can send one, shaped like the form sends it, but
+    // only an admin can read, approve, reject or delete them. They hold ID
+    // numbers, addresses and signatures, so they're never public.
+    match /registrations/{registrationId} {
+      allow create: if request.resource.data.keys().hasOnly(['formId', 'year', 'lang', 'status', 'submittedAt', 'answers', 'signatures', 'form'])
+        && request.resource.data.status == 'new'
+        && request.resource.data.submittedAt == request.time
+        && request.resource.data.formId is string
+        && request.resource.data.formId.size() < 40
+        && request.resource.data.lang in ['en', 'af']
+        && request.resource.data.answers is map
+        && request.resource.data.answers.size() < 200
+        && request.resource.data.signatures is map
+        && request.resource.data.signatures.size() <= 5
+        && request.resource.data.form is map;
+      allow read, update, delete: if isAdmin();
+    }
+
     // Student groups (shortcuts for filling in bookings): admins only.
     match /groups/{groupId} {
       allow read, write: if isAdmin();

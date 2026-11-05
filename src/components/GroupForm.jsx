@@ -8,7 +8,7 @@ export default function GroupForm({ initial, students, onSubmit, onCancel }) {
   const [query, setQuery] = useState('')
 
   const q = query.trim().toLowerCase()
-  const visible = [...students]
+  const visible = students.filter((s) => !s.archived || studentIds.includes(s.id))
     .sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`))
     .filter((s) => !q || `${s.firstName} ${s.lastName}`.toLowerCase().includes(q))
 

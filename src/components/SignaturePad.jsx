@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react'
 
-const SignaturePad = forwardRef(function SignaturePad(_, ref) {
+const SignaturePad = forwardRef(function SignaturePad({ placeholder = 'Sign here with your finger or stylus' } = {}, ref) {
   const canvasRef = useRef(null)
   const drawing = useRef(false)
   const [hasSignature, setHasSignature] = useState(false)
@@ -61,7 +61,7 @@ const SignaturePad = forwardRef(function SignaturePad(_, ref) {
 
   return (
     <div className="sig-pad-wrap">
-      {!hasSignature && <div className="sig-placeholder">Sign here with your finger or stylus</div>}
+      {!hasSignature && <div className="sig-placeholder">{placeholder}</div>}
       <canvas
         ref={canvasRef}
         style={{ height: 180 }}

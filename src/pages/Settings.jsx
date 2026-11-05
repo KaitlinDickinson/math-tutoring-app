@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { listenSettings, saveSettings } from '../lib/db'
+import { listenSettings, saveSettings, savePublicBranding } from '../lib/db'
 import UserManagement from '../components/UserManagement'
+import RegisterBuilder from '../components/registration/RegisterBuilder'
+import { resizeImage, LOGO_SIZE, WATERMARK_SIZE } from '../lib/images'
 import InvoiceDocument from '../components/InvoiceDocument'
 import { DEFAULT_WHATSAPP_MESSAGE, WHATSAPP_PLACEHOLDERS, fillWhatsAppMessage, DEFAULT_INVOICE_THANK_YOU, formatInvoiceNumber } from '../lib/helpers'
 
@@ -12,50 +14,33 @@ const BILLING_DEFAULTS = {
 
 const TABS = [
   { key: 'general', label: 'General' },
-  { key: 'users', label: 'Users' }
+  { key: 'users', label: 'Users' },
+  { key: 'register', label: 'Register builder' }
 ]
 
-// Images are stored inside the settings document itself (Firestore docs max
-// out at 1MB and Firebase Storage isn't on the free plan), so shrink them first.
-// The logo prints at up to 360px wide and PDFs render at 2x, so keep over 2x that
-// for it to stay sharp.
-const LOGO_SIZE = { maxW: 900, maxH: 360 }
-// The watermark prints faintly on white paper, so a white-backed JPEG keeps
-// it small enough to sit in the same document as the logo.
-const WATERMARK_SIZE = { maxW: 600, maxH: 600, jpeg: true }
-
-function resizeImage(file, { maxW, maxH, jpeg }) {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => {
-      // SVGs without a set size can report 0x0; fall back to the max box.
-      const w = img.width || maxW
-      const h = img.height || maxH
-      const scale = Math.min(1, maxW / w, maxH / h)
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.round(w * scale)
-      canvas.height = Math.round(h * scale)
-      const ctx = canvas.getContext('2d')
-      if (jpeg) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height) }
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      URL.revokeObjectURL(img.src)
-      // PNG keeps the logo's transparent background.
-      resolve(jpeg ? canvas.toDataURL('image/jpeg', 0.85) : canvas.toDataURL('image/png'))
-    }
-    img.onerror = () => reject(new Error("That image couldn't be read. Try a PNG or JPG."))
-    img.src = URL.createObjectURL(file)
-  })
+const TAB_INTROS = {
+  general: 'Your business details, logo, watermark, default rate and WhatsApp message.',
+  users: 'Who can log in to the admin side.',
+  register: 'The online registration form parents fill in. Build it like a Google Form, in English and Afrikaans.'
 }
 
 export default function Settings() {
   const [tab, setTab] = useState('general')
+  // The Register builder reports unsaved changes so switching tabs can warn.
+  const [builderDirty, setBuilderDirty] = useState(false)
+  const switchTab = (key) => {
+    if (key === tab) return
+    if (tab === 'register' && builderDirty && !window.confirm('You have unsaved changes to the registration form. Leave without saving?')) return
+    setBuilderDirty(false)
+    setTab(key)
+  }
 
   return (
     <div className="settings">
       <div className="content-header" style={{ marginBottom: 14 }}>
         <div>
           <h1>Settings</h1>
-          <p>{tab === 'general' ? 'Your business details, logo, watermark, default rate and WhatsApp message.' : 'Who can log in to the admin side.'}</p>
+          <p>{TAB_INTROS[tab]}</p>
         </div>
       </div>
 
@@ -67,14 +52,16 @@ export default function Settings() {
             role="tab"
             aria-selected={tab === t.key}
             className={tab === t.key ? 'active' : ''}
-            onClick={() => setTab(t.key)}
+            onClick={() => switchTab(t.key)}
           >
             {t.label}
           </button>
         ))}
       </div>
 
-      {tab === 'general' ? <GeneralSettings /> : <UserManagement />}
+      {tab === 'general' && <GeneralSettings />}
+      {tab === 'users' && <UserManagement />}
+      {tab === 'register' && <RegisterBuilder onDirtyChange={setBuilderDirty} />}
     </div>
   )
 }
@@ -137,6 +124,8 @@ function GeneralSettings() {
     setSaveError('')
     try {
       await saveSettings({ defaultHourlyRate: Number(rate) || 0, billing, logo, watermark, whatsappMessage })
+      // The registration form shows the logo and banking details from here.
+      await savePublicBranding({ billing, logo })
       setJustSaved(true)
       setTimeout(() => setJustSaved(false), 2000)
     } catch (err) {

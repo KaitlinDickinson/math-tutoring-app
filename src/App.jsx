@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate } from 'react-router-dom'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { auth } from './firebase'
-import { ensureAdminAccess } from './lib/db'
+import { ensureAdminAccess, listenRegistrations } from './lib/db'
 import Kiosk from './pages/Kiosk'
 import AdminLogin from './pages/AdminLogin'
 import Students from './pages/Students'
@@ -10,6 +10,8 @@ import CalendarPage from './pages/CalendarPage'
 import Attendance from './pages/Attendance'
 import Invoices from './pages/Invoices'
 import Settings from './pages/Settings'
+import Register from './pages/Register'
+import './components/registration/registration.css'
 
 function useAuthUser() {
   const [user, setUser] = useState(undefined) // undefined = loading
@@ -32,11 +34,22 @@ function useAdminAccess(user) {
   return access
 }
 
+// How many registrations are waiting for approval, for the menu badge.
+function useNewRegistrationCount(enabled) {
+  const [count, setCount] = useState(0)
+  useEffect(() => {
+    if (!enabled) return
+    return listenRegistrations((list) => setCount(list.filter((r) => r.status === 'new').length), () => setCount(0))
+  }, [enabled])
+  return count
+}
+
 function AdminLayout({ children }) {
   const user = useAuthUser()
   const access = useAdminAccess(user)
   const navigate = useNavigate()
   const [navOpen, setNavOpen] = useState(false)
+  const newRegistrations = useNewRegistrationCount(!!user && access === true)
 
   if (user === undefined) return <div className="empty-state">Loading…</div>
   if (!user) return <Navigate to="/admin/login" replace />
@@ -47,8 +60,10 @@ function AdminLayout({ children }) {
     {
       to: '/admin/students',
       label: 'Students',
+      count: newRegistrations,
       children: [
         { to: '/admin/students', label: 'Students', end: true },
+        { to: '/admin/students/registrations', label: 'Registrations', count: newRegistrations },
         { to: '/admin/students/groups', label: 'Groups' }
       ]
     },
@@ -103,12 +118,12 @@ function NavItems({ links, onNavigate }) {
     l.children ? (
       <div key={l.to} className="nav-section">
         <NavLink to={l.children[0].to} end={false} className={({ isActive }) => (isActive ? 'section-active' : '')} onClick={onNavigate}>
-          {l.label}
+          {l.label}{l.count > 0 && <span className="nav-count" aria-label={`${l.count} new`}>{l.count}</span>}
         </NavLink>
         <div className="nav-sub">
           {l.children.map((c) => (
             <NavLink key={c.to} to={c.to} end={c.end} className={({ isActive }) => (isActive ? 'active' : '')} onClick={onNavigate}>
-              {c.label}
+              {c.label}{c.count > 0 && <span className="nav-count" aria-label={`${c.count} new`}>{c.count}</span>}
             </NavLink>
           ))}
         </div>
@@ -148,6 +163,8 @@ export default function App() {
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin" element={<Navigate to="/admin/students" replace />} />
         <Route path="/admin/students" element={<AdminLayout><Students /></AdminLayout>} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/admin/students/registrations" element={<AdminLayout><Students /></AdminLayout>} />
         <Route path="/admin/students/groups" element={<AdminLayout><Students /></AdminLayout>} />
         <Route path="/admin/calendar" element={<AdminLayout><CalendarPage /></AdminLayout>} />
         <Route path="/admin/attendance" element={<AdminLayout><Attendance /></AdminLayout>} />

@@ -20,7 +20,8 @@ export default function Kiosk() {
   const sigRef = useRef(null)
 
   useEffect(() => {
-    const u1 = listenStudents(setStudents)
+    // Archived students (not coming back this year) don't appear here.
+    const u1 = listenStudents((list) => setStudents(list.filter((s) => !s.archived)))
     const u2 = listenBookings(setBookings)
     return () => { u1(); u2() }
   }, [])

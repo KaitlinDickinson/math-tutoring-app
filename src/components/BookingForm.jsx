@@ -26,9 +26,11 @@ export default function BookingForm({ initial, students, groups = [], bookings =
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
   const q = query.trim().toLowerCase()
+  // Archived students can't be added, but anyone already on the booking stays.
+  const pickable = students.filter((s) => !s.archived || form.studentIds.includes(s.id))
   const visibleStudents = q
-    ? students.filter((s) => `${s.firstName} ${s.lastName}`.toLowerCase().includes(q))
-    : students
+    ? pickable.filter((s) => `${s.firstName} ${s.lastName}`.toLowerCase().includes(q))
+    : pickable
 
   const toggleStudent = (id) => {
     setForm((f) => {
