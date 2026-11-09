@@ -696,6 +696,7 @@ table.ledger tr:hover td { background: #fafbf9; }
 .row-actions { white-space: nowrap; text-align: right; }
 .row-actions .btn + .btn { margin-left: 6px; }
 .walkin-note { font-size: 12px; font-weight: 600; color: var(--amber); margin-top: 2px; }
+.reopened-note { font-size: 12px; font-weight: 600; color: var(--red); margin-top: 2px; }
 .in-progress-tag { font-size: 12px; font-weight: 600; color: var(--accent); }
 .overdue { color: var(--red); font-weight: 600; }
 .invoice-row-empty td { color: var(--ink-faint); }

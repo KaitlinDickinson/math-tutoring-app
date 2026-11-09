@@ -185,6 +185,99 @@ export function buildMonthlyInvoice(student, sessions, bookings, year, month, sa
   }
 }
 
+// Fields that come from sessions + bookings; kept in sync on saved invoices.
+export const SYNCED_FIELDS = ['studentName', 'accountable', 'lineItems', 'extraLines', 'sessionCount', 'missedSessions', 'missedCount', 'bookedLines', 'bookedCount', 'uncheckedWalkIns', 'total']
+
+// JSON with object keys sorted, so a copy read back from the database (whose
+// key order isn't guaranteed) compares equal to the one that was saved.
+const stableJSON = (v) => JSON.stringify(v, (_, x) =>
+  x && typeof x === 'object' && !Array.isArray(x)
+    ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, x[k]]))
+    : x)
+
+/** Do two invoices say the same thing in every synced field? */
+export const sameSynced = (a, b) =>
+  stableJSON(SYNCED_FIELDS.map((f) => a[f] ?? null)) === stableJSON(SYNCED_FIELDS.map((f) => b[f] ?? null))
+
+/**
+ * What a locked invoice should say now: one that was paid for a month that's
+ * over (or reopened from that). `preview` is buildMonthlyInvoice's result.
+ * Sign-ins added or removed since always count, because they're deliberate.
+ * Lessons it already billed keep the label, rate and hours they were billed
+ * at, so later calendar or rate changes can't rewrite it; only hours set by
+ * hand on that sign-in, or "not billed", change a billed lesson. Lessons
+ * billed up front stay as billed until a sign-in covers them; ones whose
+ * booking was deleted stay too. The name, parent and missed lessons stay as
+ * they were unless lessons were added or removed.
+ * Also returns how many lessons were `added` and `removed`.
+ */
+export function lockedInvoice(existing, preview, sessions, bookings) {
+  const sessionById = new Map(sessions.map((s) => [s.id, s]))
+  const oldLines = existing.lineItems || []
+  const used = new Set()
+  const claim = (match) => {
+    const i = oldLines.findIndex((o, idx) => !used.has(idx) && match(o))
+    if (i < 0) return -1
+    used.add(i)
+    return i
+  }
+  // Lines saved before sign-ins carried a session id are matched by date.
+  const oldIndexFor = (li) => {
+    const i = claim((o) => o.sessionId && o.sessionId === li.sessionId)
+    return i >= 0 ? i : claim((o) => !o.sessionId && o.date === li.date)
+  }
+
+  let added = 0
+  const lineItems = preview.lineItems.map((li) => {
+    const i = oldIndexFor(li)
+    if (i < 0) { added += 1; return { li, order: Infinity } }
+    const old = oldLines[i]
+    const s = sessionById.get(li.sessionId)
+    const durationHours = s?.hoursOverride != null ? li.durationHours : old.durationHours
+    const line = { ...li, label: old.label, durationHours, rate: old.rate, amount: li.notBilled ? 0 : durationHours * old.rate }
+    return { li: line, order: i }
+  })
+    // Same-day lessons keep the order they were billed in.
+    .sort((a, b) => (a.li.date < b.li.date ? -1 : a.li.date > b.li.date ? 1 : a.order - b.order))
+    .map((x) => x.li)
+  const removed = oldLines.length - used.size
+  const changedLessons = added > 0 || removed > 0
+
+  const bookingIds = new Set((bookings || []).map((b) => b.id))
+  const oldBooked = new Map((existing.bookedLines || []).map((b) => [b.bookedKey, b]))
+  const bookedLines = [
+    ...preview.bookedLines.map((b) => {
+      const old = oldBooked.get(b.bookedKey)
+      if (!old) return b
+      return { ...b, label: old.label, durationHours: old.durationHours, rate: old.rate, amount: b.removed ? 0 : old.durationHours * old.rate }
+    }),
+    ...(existing.bookedLines || []).filter((b) => !bookingIds.has(b.bookingId))
+  ].sort((a, b) => (a.date < b.date ? -1 : 1))
+
+  const total = lineItems.reduce((sum, li) => sum + li.amount, 0) +
+    bookedLines.reduce((sum, b) => sum + b.amount, 0) +
+    preview.extraLines.reduce((sum, x) => sum + x.amount, 0)
+
+  // Invoices saved before up-front billing existed have no booked lines.
+  const keepNoBooked = existing.bookedLines == null && bookedLines.length === 0
+
+  return {
+    ...preview,
+    studentName: existing.studentName ?? preview.studentName,
+    accountable: existing.accountable ?? preview.accountable,
+    missedSessions: changedLessons ? preview.missedSessions : existing.missedSessions,
+    missedCount: changedLessons ? preview.missedCount : existing.missedCount,
+    uncheckedWalkIns: changedLessons ? preview.uncheckedWalkIns : existing.uncheckedWalkIns,
+    lineItems,
+    sessionCount: lineItems.length,
+    bookedLines: keepNoBooked ? existing.bookedLines : bookedLines,
+    bookedCount: keepNoBooked ? existing.bookedCount : bookedLines.filter((b) => !b.removed).length,
+    total,
+    added,
+    removed
+  }
+}
+
 /** Key for one booked lesson on one date, as stored in `removedBooked`. */
 export const bookedKey = (bookingId, dateISO) => `${bookingId}|${dateISO}`
 

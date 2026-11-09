@@ -5,7 +5,8 @@ import {
 } from '../lib/db'
 import {
   buildMonthlyInvoice, monthsWithSessions, formatCurrency, monthLabel, exportInvoicesCSV, nowStamp,
-  totalPaid, amountOwed, paymentFields, accountCredit, invoicePayments
+  totalPaid, amountOwed, paymentFields, accountCredit, invoicePayments,
+  SYNCED_FIELDS, sameSynced, lockedInvoice, todayISO
 } from '../lib/helpers'
 import InvoiceView from '../components/InvoiceView'
 import MarkPaidModal from '../components/MarkPaidModal'
@@ -19,10 +20,6 @@ const TABS = [
 ]
 
 const keyOf = (studentId, year, month) => `${studentId}-${year}-${month}`
-
-// Fields that come from sessions + bookings; kept in sync on unpaid invoices.
-const SYNCED_FIELDS = ['studentName', 'accountable', 'lineItems', 'extraLines', 'sessionCount', 'missedSessions', 'missedCount', 'bookedLines', 'bookedCount', 'uncheckedWalkIns', 'total']
-const syncedSnapshot = (inv) => JSON.stringify(SYNCED_FIELDS.map((f) => inv[f] ?? null))
 
 export default function Invoices() {
   const [students, setStudents] = useState(null)
@@ -102,10 +99,11 @@ export default function Invoices() {
   }, [loaded, students, sessions, bookings, invoiceByKey])
 
   // Every month with signed-in sessions gets an invoice automatically, and
-  // unpaid invoices follow any change to sign-ins or the calendar. Paid
-  // invoices for finished months are never touched; one paid up front for a
-  // month still in progress keeps adding lessons, and goes back to unpaid if
-  // they cost more than was paid.
+  // invoices follow any change to sign-ins or the calendar. A paid invoice
+  // for a finished month is locked: sign-ins added or removed still change
+  // it, but what it already billed doesn't follow later calendar edits (see
+  // lockedInvoice). Any invoice that now costs more than was paid goes back
+  // to unpaid; a locked one is marked `reopened` so it stands out.
   useEffect(() => {
     if (!loaded || !numberingReady) return
     previewByKey.forEach((preview, k) => {
@@ -118,13 +116,25 @@ export default function Invoices() {
         return
       }
       const monthOver = existing.year < today.getFullYear() || (existing.year === today.getFullYear() && existing.month < today.getMonth())
-      if (existing.status === 'paid' && monthOver) return
-      if (syncedSnapshot(existing) !== syncedSnapshot(preview)) {
-        const synced = Object.fromEntries(SYNCED_FIELDS.map((f) => [f, preview[f] ?? null]))
-        const status = existing.status === 'paid' || totalPaid(existing) > 0
-          ? paymentFields(invoicePayments(existing), preview.total).status
+      const locked = monthOver && (existing.status === 'paid' || !!existing.reopened)
+      const target = locked ? lockedInvoice(existing, preview, sessions, bookings) : preview
+      if (!sameSynced(existing, target)) {
+        const synced = Object.fromEntries(SYNCED_FIELDS.map((f) => [f, target[f] ?? null]))
+        // A locked invoice keeps its status (some were marked paid a little
+        // short on purpose) unless what it bills has changed.
+        const status = (existing.status === 'paid' || totalPaid(existing) > 0) && !(locked && target.total === existing.total)
+          ? paymentFields(invoicePayments(existing), target.total).status
           : existing.status
-        updateInvoice(existing.id, { ...synced, status })
+        const fields = { ...synced, status }
+        if (locked && (target.added || target.removed)) {
+          const before = existing.reopened || { added: 0, removed: 0 }
+          fields.reopened = {
+            date: todayISO(),
+            added: before.added + target.added,
+            removed: before.removed + target.removed
+          }
+        }
+        updateInvoice(existing.id, fields)
       }
     })
   }, [loaded, numberingReady, previewByKey, invoiceByKey]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -460,6 +470,11 @@ function InvoiceRow({ invoice, showMonth, showStatus, waiting, onOpen, onMarkPai
       <td>
         <strong>{formatCurrency(invoice.total)}</strong>
         {partPaid && <div className="muted">{formatCurrency(paidSoFar)} paid, {formatCurrency(amountOwed(invoice))} owed</div>}
+        {!paid && invoice.reopened?.added > 0 && (
+          <div className="reopened-note">
+            Reopened: {invoice.reopened.added} lesson{invoice.reopened.added === 1 ? '' : 's'} added after payment
+          </div>
+        )}
       </td>
       {showStatus && (
         <td>
