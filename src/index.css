@@ -619,6 +619,16 @@ table.ledger tr:hover td { background: #fafbf9; }
 .attendance-summary .btn-link { margin-left: 8px; }
 .attendance-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
+/* Download attendance pop-up */
+.attendance-dates .field { margin-bottom: 10px; }
+.attendance-presets { margin-bottom: 18px; flex-wrap: wrap; }
+.statement-pick-row.selected { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.statement-pick-row.selected::before { content: '✓'; }
+.attendance-download-summary { margin: 14px 0 0; font-size: 14px; color: var(--ink-soft); }
+@media (max-width: 480px) {
+  .attendance-dates { flex-direction: column; gap: 0; }
+}
+
 /* The register is drawn off screen while its PDF is made */
 .pdf-stage { position: fixed; left: -10000px; top: 0; pointer-events: none; }
 .attendance-doc { padding: 8px; color: var(--ink); }

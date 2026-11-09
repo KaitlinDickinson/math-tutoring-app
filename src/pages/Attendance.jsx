@@ -3,12 +3,13 @@ import {
   listenStudents, listenSessions, listenBookings, listenSettings, addSession, updateSession, deleteSession
 } from '../lib/db'
 import {
-  formatDate, formatTime, monthLabel, exportAttendanceCSV, sessionHours, sessionTimeLabel,
+  formatDate, formatTime, monthLabel, sessionHours, sessionTimeLabel,
   linkSessionsToBookings, elementPdfBlob, pdfPageSizePx, downloadBlob
 } from '../lib/helpers'
 import Modal from '../components/Modal'
 import SessionForm from '../components/SessionForm'
 import AttendanceDocument from '../components/AttendanceDocument'
+import AttendanceDownloadModal from '../components/AttendanceDownloadModal'
 import BlankSheetPicker from '../components/BlankSheetPicker'
 import useOnlineAttendance from '../lib/useOnlineAttendance'
 
@@ -23,9 +24,9 @@ export default function Attendance() {
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() })
   const { year, month } = cursor
   const [query, setQuery] = useState('')
-  const [modal, setModal] = useState(null) // null | 'add' | 'blank' | session object (edit)
+  const [modal, setModal] = useState(null) // null | 'add' | 'blank' | 'download' | session object (edit)
   const [confirmDelete, setConfirmDelete] = useState(null)
-  const [makingPdf, setMakingPdf] = useState(false) // false | 'register' | 'blank'
+  const [makingPdf, setMakingPdf] = useState(false) // true while the blank sheets PDF is made
   const [pdfError, setPdfError] = useState('')
   const [sheetStudents, setSheetStudents] = useState([]) // who the blank sheets are for
   const docRef = useRef(null)
@@ -94,19 +95,12 @@ export default function Attendance() {
   const oneStudent = searching && shownStudents.length === 1 ? shownStudents[0] : null
   const period = monthLabel(year, month)
   const signIns = `${rows.length} sign-in${rows.length === 1 ? '' : 's'}`
-  const who = oneStudent ? fullName(oneStudent) : searching ? `${shownStudents.length} students` : 'All students'
 
-  const handleExportCsv = () => {
-    const filename = `attendance-${who}-${period}.csv`.replace(/[^\w.-]+/g, '-')
-    exportAttendanceCSV(rows, students, bookings, filename)
-  }
-
-  // The register is only rendered (off screen) while a PDF is being made.
+  // The blank sheets are only rendered (off screen) while their PDF is being made.
   useEffect(() => {
     if (!makingPdf || !docRef.current) return
-    const blank = makingPdf === 'blank'
-    elementPdfBlob(docRef.current, oneStudent || blank ? 'portrait' : 'landscape')
-      .then((blob) => downloadBlob(blob, blank ? blankSheetFileName() : `Attendance - ${who} - ${period}.pdf`))
+    elementPdfBlob(docRef.current, 'portrait')
+      .then((blob) => downloadBlob(blob, blankSheetFileName()))
       .catch(() => setPdfError("The PDF couldn't be created. Please try again."))
       .finally(() => setMakingPdf(false))
   }, [makingPdf])
@@ -120,11 +114,8 @@ export default function Attendance() {
     setModal(null)
     setSheetStudents(chosen)
     setPdfError('')
-    setMakingPdf('blank')
+    setMakingPdf(true)
   }
-
-  // The register lists lessons in date order, oldest first.
-  const docRows = useMemo(() => [...rows].reverse(), [rows])
 
   return (
     <>
@@ -161,12 +152,9 @@ export default function Attendance() {
           )}
         </div>
         <div className="attendance-actions">
-          <button className="btn btn-accent btn-sm" onClick={() => { setPdfError(''); setMakingPdf('register') }} disabled={rows.length === 0 || !!makingPdf}>
-            {makingPdf === 'register' ? 'Creating PDF…' : oneStudent ? `Download ${fullName(oneStudent)}'s register (PDF)` : 'Download register (PDF)'}
-          </button>
-          <button className="btn btn-outline btn-sm" onClick={handleExportCsv} disabled={rows.length === 0}>Export CSV</button>
-          <button className="btn btn-outline btn-sm" onClick={() => setModal('blank')} disabled={!!makingPdf}>
-            {makingPdf === 'blank' ? 'Creating PDF…' : 'Blank sheets (PDF)'}
+          <button className="btn btn-accent btn-sm" onClick={() => setModal('download')}>Download attendance</button>
+          <button className="btn btn-outline btn-sm" onClick={() => setModal('blank')} disabled={makingPdf}>
+            {makingPdf ? 'Creating PDF…' : 'Blank sheets (PDF)'}
           </button>
         </div>
       </div>
@@ -219,23 +207,21 @@ export default function Attendance() {
 
       {makingPdf && (
         <div className="pdf-stage" aria-hidden="true">
-          {makingPdf === 'blank' ? (
-            <div ref={docRef} style={{ width: pdfPageSizePx('portrait').width, background: '#fff' }}>
-              <AttendanceDocument settings={settings} students={sheetStudents} blank />
-            </div>
-          ) : (
-            <div ref={docRef} style={{ width: pdfPageSizePx(oneStudent ? 'portrait' : 'landscape').width, background: '#fff' }}>
-              <AttendanceDocument
-                sessions={docRows}
-                studentOf={studentOf}
-                bookingFor={bookingFor}
-                settings={settings}
-                period={period}
-                student={oneStudent}
-              />
-            </div>
-          )}
+          <div ref={docRef} style={{ width: pdfPageSizePx('portrait').width, background: '#fff' }}>
+            <AttendanceDocument settings={settings} students={sheetStudents} blank />
+          </div>
         </div>
+      )}
+
+      {modal === 'download' && (
+        <AttendanceDownloadModal
+          sessions={sessions}
+          students={students}
+          bookings={bookings}
+          settings={settings}
+          bookingFor={bookingFor}
+          onClose={() => setModal(null)}
+        />
       )}
 
       {modal === 'blank' && (
@@ -244,7 +230,7 @@ export default function Attendance() {
         </Modal>
       )}
 
-      {modal && modal !== 'blank' && (
+      {modal && modal !== 'blank' && modal !== 'download' && (
         <Modal title={modal === 'add' ? 'Add attendance' : 'Edit sign-in'} onClose={() => setModal(null)} width={480}>
           <SessionForm
             initial={modal === 'add' ? null : { ...modal, durationHours: sessionHours(modal, bookingFor(modal)) }}
