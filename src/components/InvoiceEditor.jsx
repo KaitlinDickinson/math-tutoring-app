@@ -153,7 +153,8 @@ export default function InvoiceEditor({ student, year, month, invoice, sessions,
         Changes to hours and rates apply to that one lesson only; the calendar isn't changed.
       </p>
 
-      <label className="checkbox-row editor-upfront">
+      {/* Only for a month that isn't over yet (or one already billed up front, so it can be undone). */}
+      {(lastDay >= todayISO() || invoice?.upcomingFrom) && <label className="checkbox-row editor-upfront">
         <input type="checkbox" checked={billUpcoming} onChange={(e) => setBillUpcoming(e.target.checked)} />
         <span>
           <strong>Bill booked lessons up front</strong>
@@ -162,7 +163,7 @@ export default function InvoiceEditor({ student, year, month, invoice, sessions,
             whether or not they sign in. Untick a lesson below if they let you know in advance that they can't come.
           </span>
         </span>
-      </label>
+      </label>}
 
       <div className="table-scroll">
         <table className="ledger editor-table">

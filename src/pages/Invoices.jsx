@@ -392,7 +392,10 @@ export default function Invoices() {
         <StatementModal
           students={students}
           invoices={[...invoiceByKey.values()]}
+          sessions={sessions}
+          bookings={bookings}
           settings={settings}
+          onCreateInvoice={createInvoice}
           onClose={() => setShowStatement(false)}
         />
       )}

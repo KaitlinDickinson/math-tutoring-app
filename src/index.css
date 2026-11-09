@@ -588,6 +588,7 @@ table.ledger tr:hover td { background: #fafbf9; }
   padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--paper-line);
 }
 .statement-controls .field { margin-bottom: 0; }
+.statement-presets { flex-basis: 100%; display: flex; justify-content: flex-end; }
 .statement-controls .field:first-child { flex: 1; min-width: 200px; }
 .statement-student { display: flex; align-items: baseline; gap: 8px; padding: 10px 0; }
 .statement-preview { background: var(--paper); border: 1px solid var(--paper-line); border-radius: var(--radius); padding: 20px; overflow-x: auto; }
