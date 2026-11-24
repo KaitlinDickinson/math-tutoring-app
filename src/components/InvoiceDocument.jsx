@@ -23,7 +23,7 @@ export default function InvoiceDocument({ invoice, settings }) {
         </div>
         <div style={{ textAlign: 'right' }}>
           {invoice.invoiceNumber && <div>Invoice no: <strong>{invoice.invoiceNumber}</strong></div>}
-          <div>Due date: <strong>{formatDate(invoiceDueDate(invoice.year, invoice.month))}</strong></div>
+          <div>Due date: <strong>{formatDate(invoiceDueDate(invoice.year, invoice.month, billing.dueDay))}</strong></div>
           {invoice.status === 'paid' && (
             <span className="badge badge-paid" style={{ marginTop: 6 }}><span className="badge-dot" /> Paid</span>
           )}

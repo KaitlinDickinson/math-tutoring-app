@@ -4,12 +4,13 @@ import UserManagement from '../components/UserManagement'
 import RegisterBuilder from '../components/registration/RegisterBuilder'
 import { resizeImage, LOGO_SIZE, WATERMARK_SIZE } from '../lib/images'
 import InvoiceDocument from '../components/InvoiceDocument'
-import { DEFAULT_WHATSAPP_MESSAGE, WHATSAPP_PLACEHOLDERS, fillWhatsAppMessage, DEFAULT_INVOICE_THANK_YOU, formatInvoiceNumber } from '../lib/helpers'
+import { DEFAULT_WHATSAPP_MESSAGE, WHATSAPP_PLACEHOLDERS, fillWhatsAppMessage, DEFAULT_INVOICE_THANK_YOU, formatInvoiceNumber, DEFAULT_INVOICE_DUE_DAY, INVOICE_DUE_DAY_OPTIONS } from '../lib/helpers'
 
 const BILLING_DEFAULTS = {
   businessName: '', address: '', contactEmail: '', contactPhone: '',
   bankName: '', accountHolder: '', accountNumber: '', branchCode: '',
-  thankYouMessage: DEFAULT_INVOICE_THANK_YOU
+  thankYouMessage: DEFAULT_INVOICE_THANK_YOU,
+  dueDay: DEFAULT_INVOICE_DUE_DAY
 }
 
 const TABS = [
@@ -105,6 +106,12 @@ function GeneralSettings() {
   )
 
   const setBillingField = (k, v) => setBilling((b) => ({ ...b, [k]: v }))
+
+  // Custom stays selected once picked, even if the chosen day is the 1st.
+  const [dueCustom, setDueCustom] = useState(false)
+  const dueMode = billing.dueDay === 'first-monday' ? 'monday'
+    : dueCustom || billing.dueDay !== '1' ? 'custom'
+    : 'first'
 
   const messageRef = useRef(null)
   const insertPlaceholder = (key) => {
@@ -211,6 +218,43 @@ function GeneralSettings() {
                 <input id="s-branch" value={billing.branchCode} onChange={(e) => setBillingField('branchCode', e.target.value)} />
               </div>
             </div>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-intro">
+            <h3>Invoice due date</h3>
+            <p>Printed at the top of every invoice. The due date falls in the month after the invoice month, so a November invoice is due in December.</p>
+          </div>
+          <div>
+            <div className="pill-row" role="radiogroup" aria-label="Invoice due date">
+              {[
+                { key: 'first', label: 'The 1st of the month', pick: () => { setDueCustom(false); setBillingField('dueDay', '1') } },
+                { key: 'monday', label: '1st Monday of the month', pick: () => { setDueCustom(false); setBillingField('dueDay', 'first-monday') } },
+                { key: 'custom', label: 'Custom', pick: () => { setDueCustom(true); if (billing.dueDay === 'first-monday') setBillingField('dueDay', '1') } }
+              ].map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={dueMode === p.key}
+                  className={`pill ${dueMode === p.key ? 'active' : ''}`}
+                  onClick={p.pick}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            {dueMode === 'custom' && (
+              <div className="field" style={{ maxWidth: 220, marginTop: 12, marginBottom: 0 }}>
+                <label htmlFor="s-due">Day of the month</label>
+                <select id="s-due" value={billing.dueDay} onChange={(e) => setBillingField('dueDay', e.target.value)}>
+                  {INVOICE_DUE_DAY_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </section>
 

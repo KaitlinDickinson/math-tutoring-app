@@ -37,10 +37,27 @@ export function formatInvoiceNumber(year, seq) {
 export const DEFAULT_INVOICE_THANK_YOU =
   'Thank you for your support! Together, we’re adding confidence, multiplying knowledge and making a difference.'
 
-/** An invoice for a month is due on the first Monday of the following month. */
-export function invoiceDueDate(year, month) {
+/**
+ * When an invoice is due, chosen in Settings: a day of the following month
+ * ('1'–'28') or 'first-monday' of the following month.
+ */
+export const DEFAULT_INVOICE_DUE_DAY = '1'
+
+/** Days a custom due date can fall on: 1st–28th, so every month has it. */
+export const INVOICE_DUE_DAY_OPTIONS = Array.from({ length: 28 }, (_, i) => {
+  const n = i + 1
+  const suffix = n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'
+  return { value: String(n), label: `${n}${suffix}` }
+})
+
+export function invoiceDueDate(year, month, dueDay = DEFAULT_INVOICE_DUE_DAY) {
   const d = new Date(year, month + 1, 1)
-  d.setDate(1 + ((8 - d.getDay()) % 7))
+  if (dueDay === 'first-monday') {
+    d.setDate(1 + ((8 - d.getDay()) % 7))
+    return d
+  }
+  const day = Math.min(Math.max(parseInt(dueDay, 10) || 1, 1), 28)
+  d.setDate(day)
   return d
 }
 
